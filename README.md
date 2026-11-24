@@ -2,7 +2,17 @@
 
 Website tiếng Việt React + Vite + TypeScript, random hoạt động theo cây không giới hạn tầng, thư viện cộng đồng dùng Supabase Auth/PostgreSQL/Storage. Giao diện pastel và logic random hiện có được giữ lại.
 
-**Bắt đầu:** làm theo [hướng dẫn Supabase](docs/SUPABASE.md) để chạy migration, cấu hình Auth, tạo Admin đầu tiên, nhập dữ liệu cũ và đặt biến Vercel. Không có Supabase thì website hiển thị trạng thái chưa cấu hình, không dùng localStorage thay thư viện chung.
+**Bắt đầu:** làm theo [hướng dẫn Supabase](docs/SUPABASE.md) để chạy migration, cấu hình Auth, tạo Admin đầu tiên, nhập dữ liệu cũ và đặt biến Vercel. Khi chưa kết nối, đang tải, lỗi mạng hoặc Supabase rỗng, khách vẫn chọn nhóm và random với dữ liệu mẫu cục bộ **chỉ đọc**, có nhãn **chưa đồng bộ**. Thư viện Supabase được ưu tiên khi tải thành công; không dùng localStorage làm thư viện chung.
+
+## Sửa website hiện có: chỉ cần một lần Run trên Supabase
+
+Project đã có 4 bảng và bucket: mở **SQL Editor → New query**, copy toàn bộ [002_system_seed.sql](supabase/migrations/002_system_seed.sql) rồi **Run**. Không chạy lại `001_community.sql`. Không cần tạo tài khoản hay đăng nhập Admin để có ba nhóm mẫu.
+
+SQL mới kiểm tra lịch sử migration và schema thực tế, thêm 42 nhóm (gồm 3 nhóm gốc), 42 hoạt động, 17 biến thể, 4 tài nguyên lấy từ `src/data/seed.ts`. ID và khóa hệ thống cố định; chạy lại không thêm trùng, không ghi đè đóng góp hay khôi phục nội dung hệ thống đã được Admin sửa/xóa sau lần khởi tạo.
+
+Quyền sở hữu hệ thống được phân biệt bằng `system_seed_key`; `created_by` chỉ được NULL với dữ liệu hệ thống hợp lệ. Nội dung thành viên vẫn bắt buộc có chủ sở hữu Auth. RLS chặn khách/thành viên tự tạo hoặc chiếm quyền dữ liệu hệ thống. Không tạo user giả, không dùng service role key trong frontend.
+
+Sau đó upload các file đã sửa qua GitHub Web và tải lại website khi bản mới được phát hành. Bộ mã vẫn giữ nguyên giao diện. Hướng dẫn ngắn ở đầu [docs/SUPABASE.md](docs/SUPABASE.md).
 
 ## Chạy local và kiểm tra
 
@@ -15,7 +25,7 @@ npm run build
 npm test
 ```
 
-`npm test` chạy utilities/DOM và PostgreSQL cục bộ qua PGlite. `npm run test:db` chỉ chạy kiểm tra database. PGlite dùng schema Auth/Storage tối thiểu để thực thi migration và RLS; không thay thế kiểm tra Auth/email/Storage HTTP trên project Supabase thật. Xem [KIEM_THU.md](KIEM_THU.md).
+`npm test` chạy utilities/DOM và PostgreSQL cục bộ qua PGlite. `npm run test:db` chạy kiểm tra database, gồm cả khởi tạo không trùng và bảo toàn dữ liệu thành viên. `npm test` còn kiểm tra SQL sinh ra khớp `seed.ts`. `npm run seed:generate` dành cho người phát triển khi chuẩn bị bản migration mẫu mới, không phải bước người dùng website cần chạy. PGlite dùng schema Auth/Storage tối thiểu để thực thi migration và RLS; không thay thế kiểm tra Auth/email/Storage HTTP trên project Supabase thật. Xem [KIEM_THU.md](KIEM_THU.md).
 
 ## Sử dụng
 
@@ -29,13 +39,17 @@ npm test
 
 ## Backup JSON và nâng cấp
 
-**Sao lưu dữ liệu** xuất thư viện đang tải và lịch sử cá nhân. Nhập JSON có preview/xác nhận, thêm bản sao nội dung vào cộng đồng với ID mới và tác giả là tài khoản đang nhập; thay lịch sử cá nhân trên thiết bị. Không có chức năng ghi đè/reset toàn bộ cộng đồng. Admin có thể thêm bản sao dữ liệu mẫu bằng nút trong thư viện.
+**Sao lưu dữ liệu** xuất thư viện đang tải và lịch sử cá nhân. Nhập JSON có preview/xác nhận, thêm bản sao nội dung vào cộng đồng với ID mới và tác giả là tài khoản đang nhập; thay lịch sử cá nhân trên thiết bị. Không có chức năng ghi đè/reset toàn bộ cộng đồng. Dữ liệu mẫu chung được khởi tạo một lần bằng migration `002_system_seed.sql`, không cần đăng nhập Admin và không dùng nút thêm mẫu tạo bản sao.
 
 Khóa localStorage cũ không bị ghi đè. Dùng **Tải bản gốc trước nâng cấp** để lấy JSON cũ rồi import; lịch sử hợp lệ được chuyển sang khóa cá nhân mới. Khi không đọc được dữ liệu, giữ nguyên bản gốc và báo lỗi. Backup JSON không chứa file ảnh hoặc tài khoản; cần backup Storage riêng nếu muốn bảo toàn byte ảnh.
 
+## Cập nhật repository hiện tại
+
+Với `gemmychen1406/KhongBietLamGi`, dùng **Add file → Upload files** để cập nhật `src/`, `scripts/`, `supabase/`, `tests/`, `docs/`, `package.json`, `package-lock.json`, `README.md`, `KIEM_THU.md`. Dùng nguyên cây thư mục, không sửa source bằng tay. Trên Supabase chỉ cần Run file SQL 002 như hướng dẫn ở trên. Codex chỉ chạy build local, không push hoặc deploy.
+
 ## File cần upload qua GitHub Web
 
-Upload `package.json`, `package-lock.json`, `index.html`, `tsconfig.json`, `vite.config.ts`, `.gitignore`, `.env.example`, `README.md`, `AGENTS.md`, `CODEX_PROMPT.md`, `KIEM_THU.md`, cùng các thư mục `src/`, `public/`, `supabase/`, `docs/`, `tests/`. Có thể giữ `CHAY_THU.cmd` nếu đang dùng.
+Upload `package.json`, `package-lock.json`, `index.html`, `tsconfig.json`, `vite.config.ts`, `.gitignore`, `.env.example`, `README.md`, `AGENTS.md`, `CODEX_PROMPT.md`, `KIEM_THU.md`, cùng các thư mục `src/`, `public/`, `supabase/`, `scripts/`, `docs/`, `tests/`. Có thể giữ `CHAY_THU.cmd` nếu đang dùng.
 
 Không upload `node_modules/`, `dist/`, `.git/`, `.local/`, `.env.local`, `.env` hay secret. Nếu GitHub giới hạn 100 file/lần, upload lần lượt từng thư mục. Dùng **Add file → Create new file** để tạo các file bắt đầu bằng dấu chấm nếu trình chọn file ẩn chúng.
 
