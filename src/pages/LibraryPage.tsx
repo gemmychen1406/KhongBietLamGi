@@ -22,12 +22,15 @@ import {
   matchesTree,
 } from "../utils/tree";
 import { id } from "../utils/id";
+import { usePermissions, canEdit } from "../services/permissions";
+import { communityError } from "../services/supabase";
 import { NodeEditor } from "../components/NodeEditor";
 interface Editing {
   node: ActivityNode;
   parentId: string | null;
   parentName: string;
   isNew: boolean;
+  baseline: AppDocument;
 }
 function TreeItem({
   node,
@@ -50,6 +53,7 @@ function TreeItem({
   onToggle: (node: ActivityNode) => void;
   onDelete: (node: ActivityNode) => void;
 }) {
+  const permissions = usePermissions();
   const [expanded, setExpanded] = useState(false);
   if (query && !matchesTree(node, query)) return null;
   const open = expanded || !!query;
@@ -85,6 +89,7 @@ function TreeItem({
               {node.kind === "group"
                 ? `${countNodes(node.children).activities} hoạt động`
                 : `${node.variants.length} biến thể · ${node.resources.length + node.variants.reduce((n, v) => n + v.resources.length, 0)} tài nguyên`}
+              {node.contributorName && ` · ${node.contributorName}`}
               {!node.enabled
                 ? " · Đã tắt"
                 : !inherited
@@ -94,58 +99,73 @@ function TreeItem({
           </span>
         </button>
         <div className="tree-actions">
-          {node.kind === "group" && (
+          {node.kind === "group" &&
+            (!permissions.community || permissions.userId) && (
+              <>
+                <button
+                  className="icon-button"
+                  title="Thêm nhóm con"
+                  aria-label={`Thêm nhóm con vào ${node.title}`}
+                  onClick={() => {
+                    setExpanded(true);
+                    onAdd("group", node.id, node.title);
+                  }}
+                >
+                  <Folder size={16} />
+                  <Plus size={10} className="plus-overlay" />
+                </button>
+                <button
+                  className="icon-button"
+                  title="Thêm hoạt động"
+                  aria-label={`Thêm hoạt động vào ${node.title}`}
+                  onClick={() => {
+                    setExpanded(true);
+                    onAdd("activity", node.id, node.title);
+                  }}
+                >
+                  <Plus size={18} />
+                </button>
+              </>
+            )}
+          {canEdit(permissions, node) && (
             <>
               <button
-                className="icon-button"
-                title="Thêm nhóm con"
-                aria-label={`Thêm nhóm con vào ${node.title}`}
-                onClick={() => {
-                  setExpanded(true);
-                  onAdd("group", node.id, node.title);
-                }}
+                className={`icon-button ${!node.enabled ? "off" : ""}`}
+                aria-label={`${node.enabled ? "Tắt" : "Bật"} ${node.title}`}
+                aria-pressed={node.enabled}
+                title={node.enabled ? "Tắt nhánh" : "Bật nhánh"}
+                onClick={() => onToggle(node)}
               >
-                <Folder size={16} />
-                <Plus size={10} className="plus-overlay" />
+                <Power size={16} />
               </button>
               <button
                 className="icon-button"
-                title="Thêm hoạt động"
-                aria-label={`Thêm hoạt động vào ${node.title}`}
-                onClick={() => {
-                  setExpanded(true);
-                  onAdd("activity", node.id, node.title);
-                }}
+                aria-label={`Sửa ${node.title}`}
+                title="Chỉnh sửa"
+                onClick={() => onEdit(node)}
               >
-                <Plus size={18} />
+                <Pencil size={16} />
+              </button>
+              <button
+                className="icon-button danger"
+                aria-label={`Xóa ${node.title}`}
+                title="Xóa"
+                onClick={() => onDelete(node)}
+              >
+                <Trash2 size={16} />
               </button>
             </>
           )}
-          <button
-            className={`icon-button ${!node.enabled ? "off" : ""}`}
-            aria-label={`${node.enabled ? "Tắt" : "Bật"} ${node.title}`}
-            aria-pressed={node.enabled}
-            title={node.enabled ? "Tắt nhánh" : "Bật nhánh"}
-            onClick={() => onToggle(node)}
-          >
-            <Power size={16} />
-          </button>
-          <button
-            className="icon-button"
-            aria-label={`Sửa ${node.title}`}
-            title="Chỉnh sửa"
-            onClick={() => onEdit(node)}
-          >
-            <Pencil size={16} />
-          </button>
-          <button
-            className="icon-button danger"
-            aria-label={`Xóa ${node.title}`}
-            title="Xóa"
-            onClick={() => onDelete(node)}
-          >
-            <Trash2 size={16} />
-          </button>
+          {
+            <button
+              className="button small secondary"
+              onClick={() => onEdit(node)}
+            >
+              {node.kind === "activity"
+                ? "Chi tiết / Thêm tài nguyên"
+                : "Chi tiết nhóm"}
+            </button>
+          }
         </div>
       </div>
       {node.kind === "group" && open && (
@@ -178,9 +198,24 @@ export function LibraryPage({
   onReset,
 }: {
   doc: AppDocument;
-  onChange: (doc: AppDocument) => void;
+  onChange: (doc: AppDocument, baseline?: AppDocument) => void | Promise<void>;
   onReset: () => void;
 }) {
+  const permissions = usePermissions();
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function change(next: AppDocument, baseline?: AppDocument) {
+    setBusy(true);
+    setError("");
+    try {
+      await onChange(next, baseline);
+    } catch (e) {
+      setError(communityError(e));
+      throw e;
+    } finally {
+      setBusy(false);
+    }
+  }
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<Editing | null>(null);
   const close = useCallback(() => setEditing(null), []);
@@ -204,16 +239,28 @@ export function LibraryPage({
       parentId,
       parentName,
       isNew: true,
+      baseline: doc,
     });
   }
   function remove(node: ActivityNode) {
+    if (
+      permissions.community &&
+      (node.children.length || node.variants.length || node.resources.length)
+    ) {
+      setError(
+        "Không thể xóa nội dung còn phụ thuộc. Hãy xóa từng nhánh con, biến thể và tài nguyên theo quyền của bạn trước.",
+      );
+      return;
+    }
     const children = countNodes(node.children);
     if (
       window.confirm(
         `Xóa “${node.title}”${node.kind === "group" ? ` cùng ${children.groups} nhóm con và ${children.activities} hoạt động` : ""}? Lịch sử đã lưu vẫn được giữ nguyên.`,
       )
     )
-      onChange({ ...doc, nodes: removeNode(doc.nodes, node.id) });
+      void change({ ...doc, nodes: removeNode(doc.nodes, node.id) }).catch(
+        () => {},
+      );
   }
   return (
     <>
@@ -225,91 +272,113 @@ export function LibraryPage({
           </h1>
           <p>Chăm chút những điều muốn làm. Bắt đầu từ một ý tưởng nhỏ.</p>
         </div>
-        <button
-          className="button primary"
-          onClick={() => add("group", null, "Cấp cao nhất")}
-        >
-          <Plus size={18} /> Thêm nhóm mới
-        </button>
+        {(!permissions.community || permissions.userId) && (
+          <div className="error-actions">
+            <button
+              className="button secondary"
+              onClick={() => add("activity", null, "Cấp cao nhất")}
+            >
+              Thêm hoạt động
+            </button>
+            <button
+              className="button primary"
+              onClick={() => add("group", null, "Cấp cao nhất")}
+            >
+              <Plus size={18} /> Thêm nhóm mới
+            </button>
+          </div>
+        )}
       </section>
-      <section className="panel library-panel">
-        <div className="library-toolbar">
-          <div className="search-field">
-            <Search size={18} />
-            <input
-              aria-label="Tìm hoạt động hoặc nhóm"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Tìm hoạt động hoặc nhóm…"
-            />
-            {query && (
-              <button className="text-button" onClick={() => setQuery("")}>
-                Xóa
+      {error && (
+        <p className="alert error" role="alert">
+          {error}
+        </p>
+      )}
+      <fieldset disabled={busy} className="permission-fields">
+        <section className="panel library-panel">
+          <div className="library-toolbar">
+            <div className="search-field">
+              <Search size={18} />
+              <input
+                aria-label="Tìm hoạt động hoặc nhóm"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Tìm hoạt động hoặc nhóm…"
+              />
+              {query && (
+                <button className="text-button" onClick={() => setQuery("")}>
+                  Xóa
+                </button>
+              )}
+            </div>
+            <span className="subtle">
+              <b>{counts.groups}</b> nhóm · <b>{counts.activities}</b> hoạt động
+            </span>
+          </div>
+          <p className="tree-help">
+            <ListTree size={16} />
+            {query
+              ? "Kết quả giữ lại các nhóm cha dẫn tới tên phù hợp; nhánh phù hợp được tự mở."
+              : "Mở nhóm để xem nhánh con. Nút nguồn bật/tắt cả nhánh khi random."}
+          </p>
+          <ul className="tree-root">
+            {doc.nodes.map((node) => (
+              <TreeItem
+                key={node.id}
+                node={node}
+                query={query.trim()}
+                onEdit={(node) =>
+                  setEditing({
+                    node,
+                    parentId: null,
+                    parentName: "Vị trí hiện tại (giữ nguyên)",
+                    isNew: false,
+                    baseline: doc,
+                  })
+                }
+                onAdd={add}
+                onToggle={(node) =>
+                  void change({
+                    ...doc,
+                    nodes: updateNode(doc.nodes, node.id, (n) => ({
+                      ...n,
+                      enabled: !n.enabled,
+                    })),
+                  }).catch(() => {})
+                }
+                onDelete={remove}
+              />
+            ))}
+          </ul>
+          {!doc.nodes.some((n) => matchesTree(n, query.trim())) && (
+            <div className="empty-state">
+              <Search size={30} />
+              <h3>
+                {doc.nodes.length
+                  ? "Chưa tìm thấy ý tưởng này"
+                  : "Thư viện đang chờ những ý tưởng đầu tiên"}
+              </h3>
+              <p>
+                {doc.nodes.length
+                  ? "Thử một tên khác hoặc thêm hoạt động mới vào nhóm."
+                  : "Thêm một nhóm rồi tạo các hoạt động bên trong."}
+              </p>
+            </div>
+          )}
+          <div className="library-bottom">
+            <span className="subtle">
+              {permissions.community
+                ? "Thư viện công khai được lưu trên Supabase."
+                : "Thay đổi được tự lưu trên trình duyệt này."}
+            </span>
+            {!permissions.community && (
+              <button className="text-button danger" onClick={onReset}>
+                <RotateCcw size={15} /> Khôi phục dữ liệu mẫu
               </button>
             )}
           </div>
-          <span className="subtle">
-            <b>{counts.groups}</b> nhóm · <b>{counts.activities}</b> hoạt động
-          </span>
-        </div>
-        <p className="tree-help">
-          <ListTree size={16} />
-          {query
-            ? "Kết quả giữ lại các nhóm cha dẫn tới tên phù hợp; nhánh phù hợp được tự mở."
-            : "Mở nhóm để xem nhánh con. Nút nguồn bật/tắt cả nhánh khi random."}
-        </p>
-        <ul className="tree-root">
-          {doc.nodes.map((node) => (
-            <TreeItem
-              key={node.id}
-              node={node}
-              query={query.trim()}
-              onEdit={(node) =>
-                setEditing({
-                  node,
-                  parentId: null,
-                  parentName: "Vị trí hiện tại (giữ nguyên)",
-                  isNew: false,
-                })
-              }
-              onAdd={add}
-              onToggle={(node) =>
-                onChange({
-                  ...doc,
-                  nodes: updateNode(doc.nodes, node.id, (n) => ({
-                    ...n,
-                    enabled: !n.enabled,
-                  })),
-                })
-              }
-              onDelete={remove}
-            />
-          ))}
-        </ul>
-        {!doc.nodes.some((n) => matchesTree(n, query.trim())) && (
-          <div className="empty-state">
-            <Search size={30} />
-            <h3>
-              {doc.nodes.length
-                ? "Chưa tìm thấy ý tưởng này"
-                : "Thư viện đang chờ những ý tưởng đầu tiên"}
-            </h3>
-            <p>
-              {doc.nodes.length
-                ? "Thử một tên khác hoặc thêm hoạt động mới vào nhóm."
-                : "Thêm một nhóm rồi tạo các hoạt động bên trong."}
-            </p>
-          </div>
-        )}
-        <div className="library-bottom">
-          <span className="subtle">
-            Thay đổi được tự lưu trên trình duyệt này.
-          </span>
-          <button className="text-button danger" onClick={onReset}>
-            <RotateCcw size={15} /> Khôi phục dữ liệu mẫu
-          </button>
-        </div>
-      </section>
+        </section>
+      </fieldset>
       <p className="page-footnote">
         Nhóm chứa nhóm con hoặc hoạt động. Hoạt động là lá, có thể có nhiều biến
         thể và tài nguyên riêng.
@@ -320,13 +389,16 @@ export function LibraryPage({
           isNew={editing.isNew}
           parentName={editing.parentName}
           onClose={close}
-          onSave={(node) => {
-            onChange({
-              ...doc,
-              nodes: editing.isNew
-                ? addNode(doc.nodes, editing.parentId, node)
-                : updateNode(doc.nodes, node.id, () => node),
-            });
+          onSave={async (node) => {
+            await change(
+              {
+                ...editing.baseline,
+                nodes: editing.isNew
+                  ? addNode(editing.baseline.nodes, editing.parentId, node)
+                  : updateNode(editing.baseline.nodes, node.id, () => node),
+              },
+              editing.baseline,
+            );
             close();
           }}
         />

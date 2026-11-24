@@ -1,18 +1,22 @@
+export interface Contribution {
+  createdBy?: string;
+  contributorName?: string;
+}
 export type ResourceType = "text" | "image" | "link" | "music_sheet";
-export interface Resource {
+export interface Resource extends Contribution {
   id: string;
   type: ResourceType;
   title: string;
   url?: string;
   content?: string;
 }
-export interface Variant {
+export interface Variant extends Contribution {
   id: string;
   title: string;
   description?: string;
   resources: Resource[];
 }
-export interface ActivityNode {
+export interface ActivityNode extends Contribution {
   id: string;
   title: string;
   description?: string;

@@ -167,6 +167,9 @@ export function RandomPage({
                   <Leaf size={25} />
                 </div>
                 <h2>{result.activity.title}</h2>
+                {result.activity.contributorName && (
+                  <small>Đóng góp: {result.activity.contributorName}</small>
+                )}
                 <p className="preserve description">
                   {result.activity.description ||
                     "Hãy bắt đầu bằng một bước nhỏ theo cách của bạn."}
@@ -175,6 +178,9 @@ export function RandomPage({
                   <div className="variant-result">
                     <div className="eyebrow">CHỦ ĐỀ LẦN NÀY</div>
                     <h3>{result.variant.title}</h3>
+                    {result.variant.contributorName && (
+                      <small>Đóng góp: {result.variant.contributorName}</small>
+                    )}
                     {result.variant.description && (
                       <p className="preserve">{result.variant.description}</p>
                     )}
@@ -298,7 +304,7 @@ export function RandomPage({
             <div className="mini-icon">
               <BookOpen size={19} />
             </div>
-            <h3>Thư viện của riêng bạn</h3>
+            <h3>Thư viện cộng đồng</h3>
             <p>
               Thêm điều bạn muốn thử, những chủ đề bạn tò mò. Mọi ý tưởng đều có
               chỗ ở đây.

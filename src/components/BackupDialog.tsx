@@ -14,16 +14,22 @@ import {
   downloadJson,
 } from "../services/storage";
 import { countNodes } from "../utils/tree";
+import { communityError } from "../services/supabase";
 import { Modal } from "./Modal";
 export function BackupDialog({
   doc,
   onImport,
   onClose,
+  community = false,
+  canImport = true,
 }: {
   doc: AppDocument;
-  onImport: (doc: AppDocument) => void;
+  onImport: (doc: AppDocument) => void | Promise<void>;
+  community?: boolean;
+  canImport?: boolean;
   onClose: () => void;
 }) {
+  const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<AppDocument | null>(null);
   const [filename, setFilename] = useState("");
   const [message, setMessage] = useState("");
@@ -49,9 +55,15 @@ export function BackupDialog({
         <div className="backup-info">
           <ShieldCheck size={25} />
           <p>
-            Dữ liệu chỉ nằm trên trình duyệt và thiết bị này, không tự đồng bộ.
-            Hãy tải bản sao định kỳ, đặc biệt trước khi xóa dữ liệu trình duyệt
-            hoặc đổi thiết bị.
+            {community ? (
+              "Thư viện nằm trên Supabase; lịch sử nằm trên thiết bị này. Bản JSON gồm cả hai. Nhập sẽ thêm bản sao đóng góp với ID mới, không ghi đè cộng đồng, và thay lịch sử cá nhân."
+            ) : (
+              <>
+                Dữ liệu chỉ nằm trên trình duyệt và thiết bị này, không tự đồng
+                bộ. Hãy tải bản sao định kỳ, đặc biệt trước khi xóa dữ liệu
+                trình duyệt hoặc đổi thiết bị.
+              </>
+            )}
           </p>
         </div>
         <section>
@@ -86,11 +98,17 @@ export function BackupDialog({
             <Upload size={19} /> Nhập bản sao
           </h3>
           <p className="muted">
-            Kiểm tra file trước, sau đó xác nhận thay thế dữ liệu hiện tại.
+            {community
+              ? "Kiểm tra file trước, sau đó xác nhận thêm vào cộng đồng và thay lịch sử cá nhân."
+              : "Kiểm tra file trước, sau đó xác nhận thay thế dữ liệu hiện tại."}
           </p>
+          {!canImport && (
+            <p>Đăng nhập và tải thư viện thành công để nhập bản sao.</p>
+          )}
           <label className="file-label">
             Chọn file JSON
             <input
+              disabled={!canImport || busy}
               type="file"
               accept=".json,application/json"
               onChange={(e) => {
@@ -111,18 +129,35 @@ export function BackupDialog({
               </p>
               <p className="warning-text">
                 <AlertTriangle size={16} /> Dữ liệu hiện tại sẽ được thay thế
-                hoàn toàn.
+                {community
+                  ? "trong phần lịch sử cá nhân; thư viện được thêm bản sao, không xóa nội dung chung."
+                  : "hoàn toàn."}
               </p>
               <button
                 className="button primary"
-                onClick={() => {
+                disabled={busy || !canImport}
+                onClick={async () => {
                   if (
                     window.confirm(
-                      "Thay thế toàn bộ hoạt động và lịch sử bằng bản sao này? Hãy xuất bản sao dữ liệu hiện tại trước nếu cần.",
+                      community
+                        ? "Thêm toàn bộ cây trong JSON dưới tên bạn và thay lịch sử trên thiết bị? ID mới được tạo để giữ dữ liệu cộng đồng. Nhập lại sẽ tạo bản trùng."
+                        : "Thay thế toàn bộ hoạt động và lịch sử bằng bản sao này? Hãy xuất bản sao dữ liệu hiện tại trước nếu cần.",
                     )
                   ) {
-                    onImport(preview);
-                    onClose();
+                    setBusy(true);
+                    setError("");
+                    try {
+                      await onImport(preview);
+                      onClose();
+                    } catch (e) {
+                      setError(
+                        e instanceof Error
+                          ? readableError(e)
+                          : communityError(e),
+                      );
+                    } finally {
+                      setBusy(false);
+                    }
                   }
                 }}
               >

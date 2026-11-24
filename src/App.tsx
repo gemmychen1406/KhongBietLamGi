@@ -1,226 +1,400 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Dice5,
   Shuffle,
   BookOpen,
   History,
   Download,
-  HardDrive,
-  AlertTriangle,
-  ShieldCheck,
+  UserRound,
 } from "lucide-react";
 import { createSeedDocument } from "./data/seed";
 import {
   readDocument,
-  saveDocument,
-  readableError,
+  parseDocument,
   STORAGE_KEY,
   downloadJson,
+  readableError,
 } from "./services/storage";
-import type { AppDocument } from "./types";
+import {
+  completeEmailConfirmation,
+  configured,
+  getSession,
+  onSession,
+  api,
+  communityError,
+} from "./services/supabase";
+import { loadLibrary, saveLibrary } from "./services/community";
+import { PermissionContext } from "./services/permissions";
+import type { ActivityNode, AppDocument } from "./types";
 import { RandomPage } from "./pages/RandomPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { BackupDialog } from "./components/BackupDialog";
-type Page = "random" | "library" | "history";
+import { AdminPanel } from "./components/AdminPanel";
+import { AuthPanel } from "./components/AuthPanel";
+import { MyContributions } from "./pages/MyContributions";
+export const PERSONAL_KEY = "hom-nay-lam-gi.personal.v1";
+type Page = "random" | "library" | "history" | "mine";
 function readPage(): Page {
-  const value = location.hash.slice(1);
-  return value === "library" || value === "history" ? value : "random";
+  const p = location.hash.slice(1);
+  return p === "library" || p === "history" || p === "mine" ? p : "random";
 }
-function initialState() {
+function initialState(): { doc: AppDocument; error: string; blocked: boolean } {
   try {
+    const raw = localStorage.getItem(PERSONAL_KEY);
+    const old = raw ? parseDocument(raw) : readDocument();
     return {
-      doc: readDocument() ?? createSeedDocument(),
+      doc: {
+        schemaVersion: 1,
+        nodes: [],
+        history: old?.history ?? [],
+        settings: { autoSaveHistory: true },
+      },
       error: "",
       blocked: false,
     };
-  } catch (error) {
+  } catch (e) {
     return {
-      doc: createSeedDocument(),
-      error: `Không đọc được dữ liệu đã lưu: ${readableError(error)} Bản gốc chưa bị ghi đè. Đang hiển thị dữ liệu mẫu tạm thời; hãy tải bản gốc, rồi nhập bản sao hoặc xác nhận khôi phục mẫu.`,
+      doc: {
+        schemaVersion: 1,
+        nodes: [],
+        history: [],
+        settings: { autoSaveHistory: true },
+      },
+      error: `Không đọc được lịch sử: ${readableError(e)} Bản gốc chưa bị ghi đè.`,
       blocked: true,
     };
   }
 }
+// Import is additive. IDs and attribution from a backup never confer ownership.
+export function asNewContributions(nodes: ActivityNode[]): ActivityNode[] {
+  return nodes.map((n) => ({
+    ...n,
+    id: crypto.randomUUID(),
+    createdBy: undefined,
+    contributorName: undefined,
+    children: asNewContributions(n.children),
+    resources: n.resources.map((r) => ({
+      ...r,
+      id: crypto.randomUUID(),
+      createdBy: undefined,
+      contributorName: undefined,
+    })),
+    variants: n.variants.map((v) => ({
+      ...v,
+      id: crypto.randomUUID(),
+      createdBy: undefined,
+      contributorName: undefined,
+      resources: v.resources.map((r) => ({
+        ...r,
+        id: crypto.randomUUID(),
+        createdBy: undefined,
+        contributorName: undefined,
+      })),
+    })),
+  }));
+}
 export default function App() {
   const [initial] = useState(initialState);
-  const [doc, setDoc] = useState<AppDocument>(initial.doc);
+  const [doc, setDoc] = useState(initial.doc);
   const [storageError, setStorageError] = useState(initial.error);
   const [blocked, setBlocked] = useState(initial.blocked);
+  const [session, setSession] = useState(getSession);
+  const [admin, setAdmin] = useState(false);
   const [page, setPage] = useState<Page>(readPage);
   const [backup, setBackup] = useState(false);
+  const [loading, setLoading] = useState(configured);
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState("");
   const [toast, setToast] = useState("");
+  const saving = useRef(false);
   const closeBackup = useCallback(() => setBackup(false), []);
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const nodes = await loadLibrary();
+      setDoc((d) => ({ ...d, nodes }));
+      setReady(true);
+    } catch (e) {
+      setError(communityError(e));
+      setReady(false);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => onSession(setSession), []);
   useEffect(() => {
-    const update = () => setPage(readPage());
-    window.addEventListener("hashchange", update);
-    return () => window.removeEventListener("hashchange", update);
+    if (configured)
+      void completeEmailConfirmation().catch((e) =>
+        setError(communityError(e)),
+      );
+  }, []);
+  useEffect(() => {
+    if (configured) void refresh();
+  }, [refresh]);
+  useEffect(() => {
+    let active = true;
+    setAdmin(false);
+    if (session)
+      void api<boolean>("/rest/v1/rpc/is_admin", { method: "POST", body: "{}" })
+        .then((value) => {
+          if (active) setAdmin(value);
+        })
+        .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [session]);
+  useEffect(() => {
+    const fn = () => setPage(readPage());
+    window.addEventListener("hashchange", fn);
+    return () => window.removeEventListener("hashchange", fn);
   }, []);
   useEffect(() => {
     if (blocked) return;
     try {
-      saveDocument(doc);
+      localStorage.setItem(PERSONAL_KEY, JSON.stringify({ ...doc, nodes: [] }));
       setStorageError("");
     } catch {
       setStorageError(
-        "Chưa lưu được thay đổi vào trình duyệt (có thể bộ nhớ đầy hoặc bị chặn). Dữ liệu vẫn ở phiên này; hãy xuất JSON ngay để tránh mất khi tải lại.",
+        "Chưa lưu được lịch sử trên thiết bị. Hãy xuất JSON trước khi đóng trang.",
       );
     }
-  }, [doc, blocked]);
+  }, [doc.history, blocked]); // Library is never persisted as the shared source.
   useEffect(() => {
-    if (!toast) return;
-    const timeout = setTimeout(() => setToast(""), 5000);
-    return () => clearTimeout(timeout);
+    if (toast) {
+      const t = setTimeout(() => setToast(""), 5000);
+      return () => clearTimeout(t);
+    }
   }, [toast]);
-  function navigate(value: Page) {
-    location.hash = value;
-    setPage(value);
+  async function changeLibrary(next: AppDocument, baseline: AppDocument = doc) {
+    if (!session) throw { code: "42501" };
+    if (!ready || loading || saving.current)
+      throw new Error("Hãy chờ thư viện tải xong trước khi lưu.");
+    saving.current = true;
+    try {
+      await saveLibrary(baseline.nodes, next.nodes, session.user.id);
+      setToast("Đã lưu đóng góp lên Supabase.");
+      await refresh();
+    } finally {
+      saving.current = false;
+    }
+  }
+  async function importBackup(next: AppDocument) {
+    await changeLibrary({
+      ...doc,
+      nodes: [...doc.nodes, ...asNewContributions(next.nodes)],
+    });
+    setDoc((d) => ({ ...d, history: next.history }));
+    setBlocked(false);
+  }
+  function navigate(p: Page) {
+    location.hash = p;
+    setPage(p);
     window.scrollTo({ top: 0, behavior: "instant" });
   }
-  function restore(next: AppDocument) {
-    setDoc(next);
-    setBlocked(false);
-    setToast("Đã thay thế dữ liệu.");
-  }
-  function reset() {
-    if (
-      window.confirm(
-        "Khôi phục toàn bộ thư viện mẫu và xóa toàn bộ lịch sử? Hãy xuất JSON trước nếu muốn giữ dữ liệu hiện tại.",
-      )
-    )
-      restore(createSeedDocument());
-  }
   return (
-    <div className="app-shell">
-      <header className="site-header">
-        <div className="header-inner">
-          <a
-            className="brand"
-            href="#random"
-            aria-label="Hôm nay làm gì nhỉ? — Trang Random"
-          >
-            <span className="brand-mark">
-              <Dice5 size={26} strokeWidth={1.8} />
-            </span>
-            <span>
-              Hôm nay
-              <br />
-              <strong>làm gì nhỉ?</strong>
-            </span>
-          </a>
-          <nav aria-label="Điều hướng chính">
-            {(
-              [
-                { value: "random", label: "Random", icon: Shuffle },
-                { value: "library", label: "Thư viện", icon: BookOpen },
-                { value: "history", label: "Lịch sử", icon: History },
-              ] as const
-            ).map(({ value, label, icon: Icon }) => (
-              <a
-                href={`#${value}`}
-                key={value}
-                className={page === value ? "active" : ""}
-                aria-current={page === value ? "page" : undefined}
-              >
-                <Icon size={18} />
-                {label}
-              </a>
-            ))}
-          </nav>
-          <button
-            className="button backup-button secondary"
-            onClick={() => setBackup(true)}
-          >
-            <Download size={17} />
-            <span>Sao lưu dữ liệu</span>
-          </button>
-        </div>
-      </header>
-      <main className="main-content">
-        {storageError && (
-          <div role="alert" className="alert error storage-error">
-            <AlertTriangle size={21} />
-            <div>
-              <p>{storageError}</p>
-              <div className="error-actions">
-                <button
-                  className="button small secondary"
-                  onClick={() => setBackup(true)}
+    <PermissionContext.Provider
+      value={{ userId: session?.user.id ?? null, admin, community: true }}
+    >
+      <div className="app-shell">
+        <header className="site-header">
+          <div className="header-inner">
+            <a className="brand" href="#random">
+              <span className="brand-mark">
+                <Dice5 size={26} />
+              </span>
+              <span>
+                Hôm nay
+                <br />
+                <strong>làm gì nhỉ?</strong>
+              </span>
+            </a>
+            <nav aria-label="Điều hướng chính">
+              {(
+                [
+                  { value: "random", label: "Random", icon: Shuffle },
+                  { value: "library", label: "Thư viện", icon: BookOpen },
+                  { value: "history", label: "Lịch sử", icon: History },
+                  { value: "mine", label: "Đóng góp của tôi", icon: UserRound },
+                ] as const
+              ).map(({ value, label, icon: Icon }) => (
+                <a
+                  key={value}
+                  href={`#${value}`}
+                  className={page === value ? "active" : ""}
+                  aria-current={page === value ? "page" : undefined}
                 >
-                  Xuất / nhập JSON
-                </button>
-                {blocked ? (
-                  <>
-                    <button
-                      className="button small secondary"
-                      onClick={() => {
-                        try {
-                          const raw = localStorage.getItem(STORAGE_KEY);
-                          if (raw !== null)
-                            downloadJson(raw, "du-lieu-goc-can-khoi-phuc.json");
-                          else setToast("Không tìm thấy bản gốc trong bộ nhớ.");
-                        } catch (e) {
-                          setToast(readableError(e));
-                        }
-                      }}
-                    >
-                      Tải dữ liệu gốc
-                    </button>
-                    <button className="button small secondary" onClick={reset}>
-                      Khôi phục mẫu
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    className="button small secondary"
-                    onClick={() => setDoc({ ...doc })}
-                  >
-                    Thử lưu lại
-                  </button>
-                )}
-              </div>
+                  <Icon size={18} />
+                  {label}
+                </a>
+              ))}
+            </nav>
+            <button
+              className="button backup-button secondary"
+              onClick={() => setBackup(true)}
+            >
+              <Download size={17} />
+              <span>Sao lưu dữ liệu</span>
+            </button>
+          </div>
+        </header>
+        <main className="main-content">
+          <AuthPanel session={session} admin={admin} />
+          {!configured && (
+            <p className="alert error" role="alert">
+              Chưa cấu hình Supabase. Thêm biến môi trường theo docs/SUPABASE.md
+              để tải thư viện cộng đồng. Dữ liệu cũ trên trình duyệt được giữ
+              nguyên.
+            </p>
+          )}
+          {configured && (
+            <div className="community-toolbar">
+              <span>
+                {loading
+                  ? "Đang tải thư viện…"
+                  : "Thư viện cộng đồng · Dữ liệu công khai"}
+              </span>
+              <button
+                className="button small secondary"
+                disabled={loading}
+                onClick={() => void refresh()}
+              >
+                Tải lại thư viện
+              </button>
             </div>
+          )}
+          {error && (
+            <p className="alert error" role="alert">
+              {error}
+            </p>
+          )}
+          {storageError && (
+            <div className="alert error" role="alert">
+              <p>{storageError}</p>
+              <button
+                className="button small secondary"
+                onClick={() => {
+                  try {
+                    const raw =
+                      localStorage.getItem(PERSONAL_KEY) ??
+                      localStorage.getItem(STORAGE_KEY);
+                    if (raw) downloadJson(raw, "du-lieu-can-khoi-phuc.json");
+                  } catch (e) {
+                    setToast(readableError(e));
+                  }
+                }}
+              >
+                Tải dữ liệu cần khôi phục
+              </button>
+            </div>
+          )}
+          {page === "random" && (
+            <RandomPage
+              doc={doc}
+              onChange={setDoc}
+              goLibrary={() => navigate("library")}
+            />
+          )}
+          {page === "library" && (
+            <LibraryPage
+              doc={doc}
+              onChange={changeLibrary}
+              onReset={() => {}}
+            />
+          )}
+          {page === "history" && (
+            <HistoryPage
+              doc={doc}
+              onChange={setDoc}
+              goRandom={() => navigate("random")}
+            />
+          )}
+          {page === "mine" && (
+            <MyContributions
+              nodes={doc.nodes}
+              onOpenLibrary={() => navigate("library")}
+            />
+          )}
+          {admin && page === "mine" && (
+            <AdminPanel
+              onRoleChange={() => {
+                void api<boolean>("/rest/v1/rpc/is_admin", {
+                  method: "POST",
+                  body: "{}",
+                })
+                  .then(setAdmin)
+                  .catch(() => setAdmin(false));
+              }}
+            />
+          )}
+          {admin && page === "library" && (
+            <button
+              className="button secondary"
+              disabled={!ready || loading}
+              onClick={async () => {
+                if (
+                  !window.confirm(
+                    "Thêm bản sao thư viện mẫu vào cộng đồng? Nội dung hiện có được giữ nguyên. Chỉ chạy một lần để tránh trùng nội dung.",
+                  )
+                )
+                  return;
+                try {
+                  await changeLibrary({
+                    ...doc,
+                    nodes: [
+                      ...doc.nodes,
+                      ...asNewContributions(createSeedDocument().nodes),
+                    ],
+                  });
+                } catch (e) {
+                  setError(communityError(e));
+                }
+              }}
+            >
+              Thêm dữ liệu mẫu (Admin)
+            </button>
+          )}
+        </main>
+        <footer className="site-footer">
+          <div>
+            <span className="footer-brand">✦ Một chút cảm hứng, mỗi ngày.</span>
+            <span className="local-note">
+              Thư viện: Supabase · Lịch sử: thiết bị này
+            </span>
+          </div>
+          <button
+            className="text-button"
+            onClick={() => {
+              try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) downloadJson(raw, "du-lieu-cu.json");
+                else
+                  setToast("Không có dữ liệu phiên bản cũ trên thiết bị này.");
+              } catch (e) {
+                setToast(readableError(e));
+              }
+            }}
+          >
+            Tải bản gốc trước nâng cấp
+          </button>
+        </footer>
+        {backup && (
+          <BackupDialog
+            doc={doc}
+            community
+            canImport={Boolean(session) && ready}
+            onImport={importBackup}
+            onClose={closeBackup}
+          />
+        )}
+        {toast && (
+          <div className="toast" role="status">
+            {toast}
           </div>
         )}
-        {page === "random" && (
-          <RandomPage
-            doc={doc}
-            onChange={setDoc}
-            goLibrary={() => navigate("library")}
-          />
-        )}
-        {page === "library" && (
-          <LibraryPage doc={doc} onChange={setDoc} onReset={reset} />
-        )}
-        {page === "history" && (
-          <HistoryPage
-            doc={doc}
-            onChange={setDoc}
-            goRandom={() => navigate("random")}
-          />
-        )}
-      </main>
-      <footer className="site-footer">
-        <div>
-          <span className="footer-brand">
-            <span>✦</span> Một chút cảm hứng, mỗi ngày.
-          </span>
-          <span className="local-note">
-            <HardDrive size={14} /> Lưu trên thiết bị này · Không tự đồng bộ
-          </span>
-        </div>
-        <button className="text-button" onClick={() => setBackup(true)}>
-          <ShieldCheck size={15} /> Đừng quên sao lưu nhé
-        </button>
-      </footer>
-      {backup && (
-        <BackupDialog doc={doc} onImport={restore} onClose={closeBackup} />
-      )}
-      {toast && (
-        <div className="toast" role="status">
-          {toast}
-        </div>
-      )}
-    </div>
+      </div>
+    </PermissionContext.Provider>
   );
 }

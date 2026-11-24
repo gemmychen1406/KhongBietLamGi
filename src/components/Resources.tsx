@@ -64,6 +64,7 @@ function ResourceItem({ resource: r }: { resource: Resource }) {
             onError={() => setFailed(true)}
           />
         ))}
+      {r.contributorName && <small>Đóng góp: {r.contributorName}</small>}
       {r.content && <p className="preserve">{r.content}</p>}
       {safe && (
         <a

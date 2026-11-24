@@ -1,6 +1,10 @@
 import { z } from "zod";
 import type { ActivityNode, AppDocument } from "../types";
 export const STORAGE_KEY = "hom-nay-lam-gi.document";
+const attribution = {
+  createdBy: z.string().optional(),
+  contributorName: z.string().optional(),
+};
 const title = z.string().trim().min(1).max(500);
 export function isSafeUrl(value: string): boolean {
   try {
@@ -23,6 +27,7 @@ const url = z
   );
 export const resourceSchema = z
   .object({
+    ...attribution,
     id: title,
     type: z.enum(["text", "image", "link", "music_sheet"]),
     title,
@@ -42,6 +47,7 @@ export const resourceSchema = z
   });
 export const variantSchema = z
   .object({
+    ...attribution,
     id: title,
     title,
     description: z.string().max(100000).optional(),
@@ -51,6 +57,7 @@ export const variantSchema = z
 export const nodeSchema: z.ZodType<ActivityNode> = z.lazy(() =>
   z
     .object({
+      ...attribution,
       id: title,
       title,
       description: z.string().max(100000).optional(),
