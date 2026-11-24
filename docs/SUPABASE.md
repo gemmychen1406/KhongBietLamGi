@@ -1,5 +1,25 @@
 # Cấu hình cộng đồng với Supabase
 
+## Bản mới: Member sửa nội dung chung
+
+Đã có 001/002: chỉ cần chạy toàn bộ [003_collaborative_editing.sql](../supabase/migrations/003_collaborative_editing.sql) trong SQL Editor rồi tải lại website có source mới. **Không sửa hoặc chạy lại migration cũ.** Xem [hướng dẫn 003 và kiểm soát xung đột](CAP_NHAT_003.md). Trước khi chạy 003, frontend mới vẫn chỉ đọc để không mở quyền sai.
+
+
+## Sửa email xác nhận quay về localhost
+
+Trên **Supabase Dashboard → Authentication → URL Configuration**:
+
+1. Đặt **Site URL** thành `https://khong-biet-lam-gi.vercel.app/`, rồi lưu.
+2. Trong **Redirect URLs**, thêm đúng `https://khong-biet-lam-gi.vercel.app/`, rồi lưu. Chỉ giữ localhost nếu còn dùng để phát triển.
+
+Source mới gửi `redirect_to` trỏ về origin gốc của website khi đăng ký hoặc gửi lại email; không dùng hash, query hay tham số URL của người dùng để chọn nơi chuyển hướng. Supabase vẫn yêu cầu URL đó nằm trong danh sách cho phép. Không cần sửa SQL hoặc Vercel environment variables để đổi Site URL.
+
+Email cũ có thể đã chứa redirect localhost; thay cấu hình không sửa email đã gửi. Sau khi lưu cấu hình, thử đăng nhập: nếu lần bấm link trước đã xác nhận thành công thì có thể đăng nhập ngay trên website thật. Nếu vẫn báo chưa xác nhận, nhập email trong form rồi chọn **Gửi lại email xác nhận**, dùng thư mới nhất; không cần xóa tài khoản hoặc đăng ký lại. Giới hạn gửi email của Supabase vẫn áp dụng.
+
+Nếu đã tùy chỉnh **Authentication → Email Templates → Confirm signup**, liên kết xác nhận nên dùng `{{ .ConfirmationURL }}` thay cho link localhost viết cố định hoặc chỉ `{{ .SiteURL }}`. Không chia sẻ link chứa token xác nhận.
+
+Xem [Supabase Redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls).
+
 ## Website đã có 4 bảng và bucket: một thao tác bắt buộc
 
 Môi trường Codex chưa có công cụ/phiên quản trị Supabase, CLI được xác thực hay database URL. Không có lệnh quản trị từ xa nào được thực thi và không thể xác nhận trạng thái live qua mạng ở môi trường này.
@@ -12,14 +32,14 @@ Mẫu có đủ 42 nhóm, 42 hoạt động, 17 biến thể và 4 tài nguyên 
 
 ### Quyền sở hữu hệ thống
 
-Không có tài khoản Auth giả. Migration thêm `system_seed_key`, giữ FK `created_by → auth.users`, và thay NOT NULL đơn giản bằng ràng buộc phân biệt hai trường hợp: **thành viên** có `created_by` hợp lệ và không có system key; **hệ thống** có system key riêng và `created_by` NULL. Mọi hàng thành viên cũ giữ nguyên tác giả và giá trị. INSERT của authenticated user luôn phải có `created_by = auth.uid()` và không có system key; kể cả Admin trên website cũng không thể tự chèn seed hệ thống. UPDATE không được đổi tác giả, system key hoặc vị trí. Chỉ Admin được sửa/xóa mẫu hệ thống, vẫn tuân thủ FK bảo toàn đóng góp con.
+Không có tài khoản Auth giả. Migration thêm `system_seed_key`, giữ FK `created_by → auth.users`, và thay NOT NULL đơn giản bằng ràng buộc phân biệt hai trường hợp: **thành viên** có `created_by` hợp lệ và không có system key; **hệ thống** có system key riêng và `created_by` NULL. Mọi hàng thành viên cũ giữ nguyên tác giả và giá trị. INSERT của authenticated user luôn phải có `created_by = auth.uid()` và không có system key; kể cả Admin trên website cũng không thể tự chèn seed hệ thống. UPDATE không được đổi tác giả, system key hoặc vị trí. Sau 003, Member được sửa mẫu hệ thống; chỉ Admin được xóa mẫu. Tác giả/system key bất biến, FK vẫn bảo toàn đóng góp con.
 
 Đọc thư viện dùng `get_public_library()` với RLS và một snapshot nhất quán, không dựa vào phiên đăng nhập. Bản source mới vẫn đọc bảng phân trang để tương thích khi 002 chưa chạy; lỗi quyền không bị hiểu nhầm là thư viện rỗng.
 
 ## 1. Chỉ dành cho project mới chưa có bảng
 
 1. Trong Supabase Dashboard chọn **New project**, đặt tên và mật khẩu database riêng. Không đưa mật khẩu vào source.
-2. Mở **SQL Editor → New query**, chạy `supabase/migrations/001_community.sql` duy nhất một lần trên project trống; sau đó chạy `002_system_seed.sql` để có mẫu hệ thống. Project đang có bảng thì bỏ qua 001 và chỉ làm thao tác ở đầu tài liệu.
+2. Mở **SQL Editor → New query**, chạy `supabase/migrations/001_community.sql` duy nhất một lần trên project trống; sau đó chạy `002_system_seed.sql` để có mẫu hệ thống và `003_collaborative_editing.sql` để bật quyền sửa chung. Project đang có bảng thì bỏ qua 001 và chỉ làm thao tác ở đầu tài liệu.
 3. Kiểm tra **Table Editor** có `profiles`, `activity_nodes`, `activity_variants`, `resources`; RLS bật cả bốn. **Storage** có bucket public `activity-images`, tối đa 5 MB, JPEG/PNG/WebP/GIF.
 4. **Authentication → Providers → Email**: bật đăng ký bằng email và xác nhận email. Không cần bật anonymous sign-in: khách dùng public API key để đọc.
 5. **Authentication → URL Configuration**: Site URL là URL website; thêm URL localhost và website Vercel vào Redirect URLs. Ví dụ `http://localhost:5173` và `https://ten-web.vercel.app`. Sau khi xác nhận email, website nhận phiên và xóa token khỏi thanh địa chỉ. Bạn cũng có thể đăng nhập lại bằng email/mật khẩu.
@@ -64,11 +84,11 @@ RPC `set_member_role` tự kiểm tra Admin trong database, không tin role gử
 
 - Toàn bộ thư viện hiện tại là công khai; `enabled` chỉ điều khiển random, không ẩn nội dung.
 - Member thêm nhóm/hoạt động ở gốc hoặc dưới nhóm của bất kỳ tác giả nào; thêm biến thể/tài nguyên vào hoạt động của người khác. Mỗi đóng góp có tác giả riêng.
-- Chỉ tác giả hoặc Admin được sửa/xóa. Khóa ID, `created_by`, vị trí cha và loại node không được đổi. Không hỗ trợ chuyển nhánh để tránh di chuyển đóng góp của người khác hoặc tạo chu trình.
+- Member được sửa mọi nội dung công khai sau 003; chỉ tác giả hoặc Admin được xóa. Khóa ID, `created_by`, vị trí cha và loại node không được đổi. Không hỗ trợ chuyển nhánh để tránh di chuyển đóng góp của người khác hoặc tạo chu trình.
 - Muốn xóa nhánh/hoạt động/biến thể phải xử lý từng phụ thuộc trước. FK `RESTRICT` bảo vệ cả khi gọi API trực tiếp; không cascade nội dung cộng đồng. Admin cũng phải xóa từ tài nguyên, biến thể, lá lên gốc.
 - Form lưu trong transaction và đối chiếu bản gốc để báo xung đột. Khi bị xung đột hãy đóng form, **Tải lại thư viện** rồi mở lại. Nội dung mới của người khác không bị form cũ tự xóa.
 - Ảnh upload vào `<user UUID>/<UUID file>`, giữ nguyên đường dẫn, không cho overwrite. Upload chỉ nhận JPEG/PNG/WebP/GIF tối đa 5 MB; SVG bị loại. Có thể dùng URL ảnh http(s) bên ngoài như trước.
-- Tab **Đóng góp của tôi → Ảnh đã tải lên** cho xóa file của mình, kể cả ảnh thừa khi bỏ form. Admin nhập UUID thư mục để quản lý ảnh vi phạm. Xóa file là thao tác riêng với xóa tài nguyên; xác nhận trước vì các liên kết công khai dùng file đó sẽ hỏng. Ảnh public có thể còn trong cache một thời gian.
+- Tab **Đóng góp của tôi → tab Ảnh đã tải lên** cho xóa file của mình, kể cả ảnh thừa khi bỏ form. Admin mở tab Quản trị, nhập UUID thư mục trong phần quản lý ảnh cộng đồng để xử lý ảnh vi phạm. Xóa file là thao tác riêng với xóa tài nguyên; xác nhận trước vì các liên kết công khai dùng file đó sẽ hỏng. Ảnh public có thể còn trong cache một thời gian.
 - Thư viện được tải khi mở/reload website và sau lần ghi thành công. Nút tải lại lấy đóng góp mới. Chưa dùng realtime subscription.
 - Lịch sử snapshot vẫn nằm trên thiết bị, không đồng bộ theo tài khoản; người dùng chung trình duyệt có thể thấy cùng lịch sử. Dữ liệu local cũ được giữ nguyên. Đăng nhập sử dụng phiên Auth trong localStorage và refresh token; không lưu mật khẩu.
 

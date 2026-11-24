@@ -17,7 +17,7 @@ Tạo ba tài khoản thử nghiệm A, B, Admin, xác nhận email và cấp Ad
 | 1. Guest | Mở ẩn danh, random, xem chi tiết và link/ảnh | Đọc/random được, không thấy nút thêm/sửa/xóa; gọi API ghi bằng public key bị từ chối |
 | 2. A → B | A thêm nhóm và hoạt động; B tải lại website | B và khách thấy cùng nội dung, tên tác giả A |
 | 3. Đóng góp chéo | B mở hoạt động A, thêm variant, thêm tài nguyên chung và tài nguyên variant | Ghi được; từng variant/resource có `created_by` là B, node vẫn là A |
-| 4. Cấm sửa người khác | B mở hoạt động A | Thông tin node A bị khóa; không có nút sửa/xóa A; gọi API UPDATE/DELETE A bằng JWT B không thay đổi dữ liệu |
+| 4. Sửa chung, xóa riêng | B mở hoạt động A | Sau 003, B sửa được node/variant/resource A và hệ thống; tác giả gốc giữ nguyên, updated_by là B; không có quyền DELETE A hoặc hệ thống |
 | 5. Bảo toàn phụ thuộc | A thử xóa nhóm/hoạt động có con hoặc variant/resource của B | Bị chặn và giải thích; nội dung B còn nguyên; DELETE trực tiếp trả lỗi FK |
 | 6. Không tự cấp Admin | A gọi RPC `set_member_role` với chính mình hoặc UPDATE profiles, sửa user_metadata.role | Database từ chối; `is_admin()` vẫn false |
 | 7. Admin | Admin sửa nội dung A/B, xóa tài nguyên/variant/lá rồi xóa nhánh trống; đổi vai trò B qua UI | Thành công theo thứ tự phụ thuộc; Admin cuối cùng không thể bị hạ quyền |
@@ -34,7 +34,7 @@ Tạo ba tài khoản thử nghiệm A, B, Admin, xác nhận email và cấp Ad
 
 ## CRUD, xung đột và backup
 
-- B thêm nhóm con/hoạt động vào nhóm A, reload: cây và tác giả đúng. Sửa/xóa nội dung B tạo; tài nguyên URL chỉ nhận http(s).
+- B thêm nhóm con/hoạt động vào nhóm A hoặc hệ thống, reload: cây và tác giả đúng. B sửa nội dung A/hệ thống nhưng chỉ xóa nội dung B tạo; URL chỉ nhận http(s).
 - Hai cửa sổ mở cùng node; một bên lưu sửa tên, bên còn lại lưu bản cũ: báo xung đột, không ghi đè im lặng.
 - Khi editor A đang mở, B thêm variant/resource: A chỉ sửa tiêu đề, đóng góp B phải vẫn tồn tại.
 - Mất mạng giữa lần lưu: không có nội dung được ghi dở dang; sau kết nối lại tải thư viện trước khi thử lại. Nếu mất phản hồi sau khi server đã commit, tải lại để xác định kết quả trước khi tạo lại.
@@ -75,3 +75,22 @@ Không có kết nối quản trị Supabase trong môi trường Codex. DNS/tru
 - `npm test`: **PASS**, 54 tests Vitest trong 7 files + 13 tests phân quyền PostgreSQL + 9 tests khởi tạo hệ thống, tổng **76 tests**.
 - `node scripts/generate-system-seed.mjs --check`: **PASS**, file SQL bàn giao khớp dữ liệu thật trong seed.ts và template đã kiểm tra.
 - Không có kiểm chứng Supabase cloud/website live: chưa có kết nối quản trị và môi trường bị lỗi DNS. Các khẳng định về bảo toàn dữ liệu/không trùng ở trên được kiểm chứng bằng migration chạy trong PostgreSQL PGlite với Auth/Storage schema tối thiểu.
+
+### Sửa email xác nhận về localhost
+
+- Đăng ký và gửi lại xác nhận truyền `redirect_to` về origin gốc của website; bỏ hash và query hiện tại.
+- `npm run build`: PASS. `npm test`: PASS, 56 Vitest + 22 PostgreSQL = 78 tests.
+- Chưa kiểm tra email thật hoặc thay Site URL/Redirect URLs trên project Supabase; cần lưu domain production trong Authentication → URL Configuration. Xem đầu docs/SUPABASE.md.
+
+
+## Bản 003: sửa chung, xóa theo tác giả và trang đóng góp cá nhân
+
+- `npm test`: PASS, **73 tests Vitest trong 12 files**, cùng **34 tests PostgreSQL** (13 baseline 001, 9 seed 002, 12 nâng cấp 003), tổng **107 tests**.
+- Build sau các thay đổi source: PASS; migration 001/002 giữ nguyên, SQL generated 002 vẫn khớp seed.ts.
+- Kiểm tra 003: RLS cả bốn bảng, Member sửa nội dung B/hệ thống, tự ghi updated_by/updated_at/revision, bất biến tác giả/ID/system key/parent, DELETE theo tác giả/Admin, từ chối tự cấp quyền, snapshot revision chống ghi đè kể cả ABA, rollback khi một thao tác không hợp lệ. Chạy lại 002 sau 003 vẫn giữ trigger audit, quyền và revision.
+- UI: Member sửa tên nội dung người khác nhưng không có nút xóa; thiếu 003 hoặc mẫu chưa đồng bộ thì chỉ đọc và có hướng dẫn. Nút sửa từ trang cá nhân mở đúng editor; xem chi tiết mở nội dung thật.
+- Trang cá nhân: nội dung sửa hộ không được tính là do mình tạo; thống kê và lọc theo created_by, empty state có CTA, tài nguyên của mình trên hoạt động người khác xuất hiện đúng tab; tab quản trị tách riêng và hỗ trợ bàn phím.
+- Storage UI: đếm ảnh từ truy vấn thật, không giả số 0 khi lỗi; thumbnail, mở/xóa ảnh, retry; không lưu dở dang trong lúc upload và giữ tác giả gốc khi thay URL ảnh.
+- Responsive CSS đã cấu hình cho desktop, tablet và điện thoại; **chưa kiểm chứng bằng trình duyệt/điện thoại thật**. Môi trường từng chặn Chromium bởi sandbox, không có kiểm thử ảnh chụp giao diện thực tế cho bản này.
+- **Chưa chạy SQL trên Supabase cloud, chưa gửi dữ liệu lên website thật hoặc thử đồng bộ qua hai thiết bị thật** do không có phiên quản trị/cấu hình project trong môi trường này. PostgreSQL/RLS được kiểm tra bằng PGlite; HTTP Auth/Storage dùng mock ở unit/DOM tests. Cần chạy 003 trong Dashboard rồi thực hiện checklist thật bằng A/B/Admin.
+- Không push GitHub hoặc deploy Vercel. Danh sách file mới/sửa được ghi trong CAC_FILE_CAN_UPLOAD.md.

@@ -46,7 +46,7 @@ describe("Tải thư viện công khai", () => {
     expect(read).toHaveBeenCalledTimes(1);
     expect(
       canEdit({ userId: "A", admin: false, community: true }, nodes[0]),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canEdit({ userId: "A", admin: true, community: true }, nodes[0]),
     ).toBe(true);

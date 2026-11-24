@@ -2,6 +2,11 @@ import { z } from "zod";
 import type { ActivityNode, AppDocument } from "../types";
 export const STORAGE_KEY = "hom-nay-lam-gi.document";
 const attribution = {
+  createdAt: z.string().datetime({ offset: true }).optional(),
+  updatedAt: z.string().datetime({ offset: true }).optional(),
+  updatedBy: z.string().optional(),
+  updatedByName: z.string().optional(),
+  revision: z.number().int().nonnegative().optional(),
   systemSeedKey: z.string().min(1).max(2000).optional(),
   createdBy: z.string().optional(),
   contributorName: z.string().optional(),

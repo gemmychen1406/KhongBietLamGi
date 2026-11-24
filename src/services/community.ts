@@ -1,6 +1,8 @@
-import type { ActivityNode, Resource, Variant } from "../types";
+import type { ActivityNode, Contribution, Resource, Variant } from "../types";
 import { api, publicApi, publicImageUrl } from "./supabase";
-export type Row = Record<string, string | boolean | null> & { id: string };
+export type Row = Record<string, string | boolean | number | null> & {
+  id: string;
+};
 export type Tables = Record<
   "activity_nodes" | "activity_variants" | "resources",
   Row[]
@@ -12,12 +14,15 @@ export interface Change {
   before?: Row;
 }
 function ownership(
-  item: { createdBy?: string; systemSeedKey?: string },
+  item: Contribution,
   userId: string,
-): Record<string, string | null> {
-  return item.systemSeedKey
-    ? { created_by: null, system_seed_key: item.systemSeedKey }
-    : { created_by: item.createdBy ?? userId };
+): Record<string, string | number | null> {
+  return {
+    ...(item.systemSeedKey
+      ? { created_by: null, system_seed_key: item.systemSeedKey }
+      : { created_by: item.createdBy ?? userId }),
+    ...(item.revision !== undefined ? { revision: item.revision } : {}),
+  };
 }
 export function flatten(nodes: ActivityNode[], userId: string): Tables {
   const rows: Tables = {
@@ -90,8 +95,8 @@ export function assemble(
   rows: Tables,
   names: Map<string, string>,
 ): ActivityNode[] {
-  const attr = (r: Row) =>
-    r.system_seed_key
+  const attr = (r: Row): Contribution => ({
+    ...(r.system_seed_key
       ? {
           systemSeedKey: String(r.system_seed_key),
           contributorName: "Hệ thống",
@@ -99,7 +104,17 @@ export function assemble(
       : {
           createdBy: r.created_by ? String(r.created_by) : undefined,
           contributorName: names.get(String(r.created_by)) ?? "Thành viên",
-        };
+        }),
+    ...(r.created_at ? { createdAt: String(r.created_at) } : {}),
+    ...(r.updated_at ? { updatedAt: String(r.updated_at) } : {}),
+    ...(r.updated_by
+      ? {
+          updatedBy: String(r.updated_by),
+          updatedByName: names.get(String(r.updated_by)) ?? "Thành viên",
+        }
+      : {}),
+    ...(typeof r.revision === "number" ? { revision: r.revision } : {}),
+  });
   const rs = (node: string, variant: string | null): Resource[] =>
     rows.resources
       .filter((r) => r.node_id === node && r.variant_id === variant)
@@ -249,6 +264,14 @@ export async function saveLibrary(
     flatten(after, userId),
   );
   if (!changes.length) return;
+  if (
+    changes.some(
+      (c) => c.op !== "insert" && typeof c.before?.revision !== "number",
+    )
+  )
+    throw new Error(
+      "Thư viện chưa có phiên bản bảo vệ chỉnh sửa. Hãy chạy migration 003 và tải lại website.",
+    );
   await api("/rest/v1/rpc/apply_community_changes", {
     method: "POST",
     body: JSON.stringify({ changes }),
@@ -282,4 +305,21 @@ export async function deleteImage(path: string) {
     throw new Error(
       "Ảnh không tồn tại hoặc bạn không có quyền xóa. Hãy tải lại danh sách.",
     );
+}
+
+export function supportsSharedEditing(nodes: ActivityNode[]): boolean {
+  const valid = (item: Contribution) =>
+    typeof item.revision === "number" &&
+    Number.isSafeInteger(item.revision) &&
+    item.revision >= 0;
+  return (
+    nodes.length > 0 &&
+    nodes.every(
+      (n) =>
+        valid(n) &&
+        n.resources.every(valid) &&
+        n.variants.every((v) => valid(v) && v.resources.every(valid)) &&
+        (!n.children.length || supportsSharedEditing(n.children)),
+    )
+  );
 }

@@ -6,6 +6,7 @@ export function LibraryStatus({
   ready,
   error,
   onRefresh,
+  editingReady = true,
 }: {
   source: "sample" | "community";
   configured: boolean;
@@ -13,6 +14,7 @@ export function LibraryStatus({
   ready: boolean;
   error: string;
   onRefresh: () => void;
+  editingReady?: boolean;
 }) {
   const sample = source === "sample";
   const description = loading
@@ -24,8 +26,10 @@ export function LibraryStatus({
           ? "Chưa tải được cộng đồng. Bạn có thể tiếp tục random dữ liệu mẫu trên website."
           : "Đang giữ bản cộng đồng đã tải trước đó. Tạm khóa chỉnh sửa đến khi kết nối lại."
         : sample
-          ? "Thư viện cộng đồng chưa có dữ liệu. Bạn có thể random mẫu ngay; dữ liệu chung sẽ hiển thị sau khi khởi tạo và tải lại."
-          : "Hoạt động, biến thể và tài nguyên được tải từ thư viện chung. Đăng nhập để đóng góp; bấm tải lại để xem nội dung mới.";
+          ? "Thư viện cộng đồng chưa có dữ liệu. Bạn có thể random mẫu; chủ website cần chạy 002_system_seed.sql rồi 003_collaborative_editing.sql trong Supabase SQL Editor để khởi tạo và bật đóng góp."
+          : !editingReady
+            ? "Thư viện đang dùng phân quyền cũ. Chủ website cần chạy 003_collaborative_editing.sql trong Supabase SQL Editor, sau đó tải lại. Nội dung vẫn xem và random được; tạm khóa thêm/sửa để bảo vệ dữ liệu."
+            : "Hoạt động, biến thể và tài nguyên được tải từ thư viện chung. Đăng nhập để đóng góp; bấm tải lại để xem nội dung mới.";
   return (
     <section
       className={`library-status ${sample ? "is-sample" : "is-community"}`}
@@ -48,9 +52,11 @@ export function LibraryStatus({
           <span>
             {sample
               ? "Chỉ đọc · Chưa đồng bộ"
-              : ready && !loading
-                ? "Đã cập nhật"
-                : "Bản đã tải · Chỉ đọc"}
+              : !editingReady
+                ? "Chỉ đọc · Cần cập nhật quyền"
+                : ready && !loading
+                  ? "Đã cập nhật"
+                  : "Bản đã tải · Chỉ đọc"}
           </span>
         </div>
       </div>

@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node scripts/generate-system-seed.mjs --check && vitest run && npm run test:db",
-    "test:db": "node tests/database.test.mjs && node tests/system-seed.database.test.mjs",
+    "test:db": "node tests/database.test.mjs && node tests/system-seed.database.test.mjs && node tests/collaborative.database.test.mjs",
     "seed:generate": "node scripts/generate-system-seed.mjs"
   },
   "dependencies": {

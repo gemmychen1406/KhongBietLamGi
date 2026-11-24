@@ -1,3 +1,5 @@
+import { ShieldCheck } from "lucide-react";
+import { AdminImageManager } from "./ImageManager";
 import { useState } from "react";
 import { api, communityError } from "../services/supabase";
 export function AdminPanel({ onRoleChange }: { onRoleChange: () => void }) {
@@ -9,7 +11,7 @@ export function AdminPanel({ onRoleChange }: { onRoleChange: () => void }) {
     { id: string; display_name: string; role: string }[]
   >([]);
   return (
-    <section className="panel auth-panel">
+    <section className="admin-management" aria-label="Quản trị cộng đồng">
       <form
         className="editor-form"
         onSubmit={async (e) => {
@@ -23,6 +25,9 @@ export function AdminPanel({ onRoleChange }: { onRoleChange: () => void }) {
               method: "POST",
               body: JSON.stringify({ target_user: target, new_role: role }),
             });
+            setProfiles((current) =>
+              current.map((p) => (p.id === target ? { ...p, role } : p)),
+            );
             setMessage("Đã cập nhật quyền.");
             onRoleChange();
           } catch (error) {
@@ -32,7 +37,14 @@ export function AdminPanel({ onRoleChange }: { onRoleChange: () => void }) {
           }
         }}
       >
-        <h2>Quản lý quyền (Admin)</h2>
+        <div className="contribution-section-heading">
+          <div>
+            <h2>
+              <ShieldCheck size={20} /> Quản lý thành viên
+            </h2>
+            <p>Khu vực quản trị riêng dành cho Admin.</p>
+          </div>
+        </div>
         <p>
           Database kiểm tra quyền hiện tại; không thể hạ quyền Admin cuối cùng.
         </p>
@@ -44,12 +56,13 @@ export function AdminPanel({ onRoleChange }: { onRoleChange: () => void }) {
             setBusy(true);
             try {
               const result: typeof profiles = [];
-              for (let offset = 0; ; offset += 500) {
+              for (let offset = 0; ;) {
                 const batch = await api<typeof profiles>(
                   `/rest/v1/profiles?select=id,display_name,role&order=id&limit=500&offset=${offset}`,
                 );
+                if (!batch.length) break;
                 result.push(...batch);
-                if (batch.length < 500) break;
+                offset += batch.length;
               }
               setProfiles(result);
             } catch (e) {
@@ -72,7 +85,8 @@ export function AdminPanel({ onRoleChange }: { onRoleChange: () => void }) {
                   setRole(p.role);
                 }}
               >
-                {p.display_name} · {p.role}
+                {p.display_name} ·{" "}
+                {p.role === "admin" ? "Quản trị viên" : "Thành viên"}
               </button>
               <small className="member-id">{p.id}</small>
             </li>
@@ -90,8 +104,8 @@ export function AdminPanel({ onRoleChange }: { onRoleChange: () => void }) {
         <label>
           Vai trò
           <select value={role} onChange={(e) => setRole(e.target.value)}>
-            <option value="member">Member</option>
-            <option value="admin">Admin</option>
+            <option value="member">Thành viên</option>
+            <option value="admin">Quản trị viên</option>
           </select>
         </label>
         <button className="button primary" disabled={busy}>
@@ -99,6 +113,7 @@ export function AdminPanel({ onRoleChange }: { onRoleChange: () => void }) {
         </button>
         {message && <p role="status">{message}</p>}
       </form>
+      <AdminImageManager />
     </section>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Plus,
   Search,
@@ -20,11 +20,13 @@ import {
   removeNode,
   countNodes,
   matchesTree,
+  findNode,
 } from "../utils/tree";
 import { id } from "../utils/id";
 import {
   usePermissions,
   canEdit,
+  canDelete,
   canContribute,
 } from "../services/permissions";
 import { communityError } from "../services/supabase";
@@ -149,14 +151,16 @@ function TreeItem({
               >
                 <Pencil size={16} />
               </button>
-              <button
-                className="icon-button danger"
-                aria-label={`Xóa ${node.title}`}
-                title="Xóa"
-                onClick={() => onDelete(node)}
-              >
-                <Trash2 size={16} />
-              </button>
+              {canDelete(permissions, node) && (
+                <button
+                  className="icon-button danger"
+                  aria-label={`Xóa ${node.title}`}
+                  title="Xóa"
+                  onClick={() => onDelete(node)}
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
             </>
           )}
           {
@@ -199,10 +203,14 @@ export function LibraryPage({
   doc,
   onChange,
   onReset,
+  initialSelection,
+  onSelectionHandled,
 }: {
   doc: AppDocument;
   onChange: (doc: AppDocument, baseline?: AppDocument) => void | Promise<void>;
   onReset: () => void;
+  initialSelection?: { nodeId: string; requestId: number } | null;
+  onSelectionHandled?: () => void;
 }) {
   const permissions = usePermissions();
   const [error, setError] = useState("");
@@ -222,6 +230,24 @@ export function LibraryPage({
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<Editing | null>(null);
   const close = useCallback(() => setEditing(null), []);
+  useEffect(() => {
+    if (!initialSelection) return;
+    const node = findNode(doc.nodes, initialSelection.nodeId);
+    if (node) {
+      setQuery(node.title);
+      setEditing({
+        node,
+        parentId: null,
+        parentName: "Vị trí hiện tại (giữ nguyên)",
+        isNew: false,
+        baseline: doc,
+      });
+    } else
+      setError(
+        "Không tìm thấy nội dung; có thể nội dung đã được xóa. Hãy tải lại thư viện.",
+      );
+    onSelectionHandled?.();
+  }, [initialSelection, doc, onSelectionHandled]);
   const counts = countNodes(doc.nodes);
   function add(
     kind: ActivityNode["kind"],
@@ -246,6 +272,10 @@ export function LibraryPage({
     });
   }
   function remove(node: ActivityNode) {
+    if (!canDelete(permissions, node)) {
+      setError("Bạn chỉ được xóa nội dung do mình tạo.");
+      return;
+    }
     if (
       permissions.community &&
       (node.children.length || node.variants.length || node.resources.length)

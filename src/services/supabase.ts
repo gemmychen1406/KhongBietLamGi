@@ -179,7 +179,7 @@ export async function signOut() {
   updateSession(null);
 }
 export function publicImageUrl(path: string) {
-  return `${url}/storage/v1/object/public/activity-images/${path}`;
+  return `${url}/storage/v1/object/public/activity-images/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 export function communityError(error: unknown): string {
   if (error instanceof DOMException && error.name === "AbortError")

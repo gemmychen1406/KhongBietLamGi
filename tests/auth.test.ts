@@ -135,3 +135,42 @@ it("đọc công khai vẫn được khi phiên đăng nhập đã hết hạn, 
     "grant_type=refresh_token",
   );
 });
+
+it("đăng ký trên production gửi redirect_to về đúng domain, bỏ hash và query", async () => {
+  vi.stubGlobal(
+    "location",
+    new URL(
+      "https://khong-biet-lam-gi.vercel.app/?redirect_to=http://localhost:3000#library",
+    ),
+  );
+  const fetch = vi.fn(async () => response({ id: "A" }));
+  vi.stubGlobal("fetch", fetch);
+  const auth = await import("../src/services/supabase");
+  await auth.signUp("a@example.com", "password123", "A");
+  const [path, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+  expect(new URL(path).pathname).toBe("/auth/v1/signup");
+  expect(new URL(path).searchParams.get("redirect_to")).toBe(
+    "https://khong-biet-lam-gi.vercel.app/",
+  );
+  expect(JSON.parse(init.body as string).data).toEqual({ display_name: "A" });
+});
+it("gửi lại xác nhận dùng đúng domain và không cần mật khẩu hay phiên đăng nhập", async () => {
+  vi.stubGlobal(
+    "location",
+    new URL("https://khong-biet-lam-gi.vercel.app/#random"),
+  );
+  const fetch = vi.fn(async () => response({}));
+  vi.stubGlobal("fetch", fetch);
+  const auth = await import("../src/services/supabase");
+  await auth.resendConfirmation(" a@example.com ");
+  const [path, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+  expect(new URL(path).pathname).toBe("/auth/v1/resend");
+  expect(new URL(path).searchParams.get("redirect_to")).toBe(
+    "https://khong-biet-lam-gi.vercel.app/",
+  );
+  expect(JSON.parse(init.body as string)).toEqual({
+    type: "signup",
+    email: "a@example.com",
+  });
+  expect(auth.getSession()).toBeNull();
+});

@@ -13,6 +13,7 @@ import { id } from "../utils/id";
 import {
   usePermissions,
   canEdit,
+  canDelete,
   canContribute,
 } from "../services/permissions";
 import { uploadImage } from "../services/community";
@@ -27,7 +28,9 @@ const newResource = (): Resource => ({
 function ResourceEditor({
   resources,
   onChange,
+  onUploadChange,
 }: {
+  onUploadChange?: (delta: number) => void;
   resources: Resource[];
   onChange: (resources: Resource[]) => void;
 }) {
@@ -109,6 +112,7 @@ function ResourceEditor({
                       const file = e.target.files?.[0];
                       if (!file) return;
                       setUploading(true);
+                      onUploadChange?.(1);
                       setUploadError("");
                       try {
                         patch(i, {
@@ -118,13 +122,14 @@ function ResourceEditor({
                         setUploadError(communityError(error));
                       } finally {
                         setUploading(false);
+                        onUploadChange?.(-1);
                       }
                     }}
                   />
                 </label>
               )}
           </fieldset>
-          {canEdit(permissions, r) && (
+          {canDelete(permissions, r) && (
             <button
               type="button"
               className="text-button danger"
@@ -157,7 +162,9 @@ function VariantEditor({
   variant,
   onChange,
   onDelete,
+  onUploadChange,
 }: {
+  onUploadChange?: (delta: number) => void;
   variant: Variant;
   onChange: (value: Variant) => void;
   onDelete: () => void;
@@ -176,7 +183,7 @@ function VariantEditor({
           {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}{" "}
           {variant.title || "Biến thể mới"}
         </button>
-        {canEdit(permissions, variant) && (
+        {canDelete(permissions, variant) && (
           <button
             type="button"
             className="icon-button danger"
@@ -224,6 +231,7 @@ function VariantEditor({
           </fieldset>
           <ResourceEditor
             resources={variant.resources}
+            onUploadChange={onUploadChange}
             onChange={(resources) => onChange({ ...variant, resources })}
           />
         </div>
@@ -246,17 +254,30 @@ export function NodeEditor({
 }) {
   const permissions = usePermissions();
   const [saving, setSaving] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState(0);
+  const uploadChange = useCallback(
+    (delta: number) => setPendingUploads((n) => Math.max(0, n + delta)),
+    [],
+  );
   const [draft, setDraft] = useState(() => structuredClone(node));
   const [error, setError] = useState("");
   const close = useCallback(() => {
+    if (saving || pendingUploads) {
+      setError("Đang lưu hoặc tải ảnh lên. Vui lòng đợi hoàn tất.");
+      return;
+    }
     if (
       JSON.stringify(node) === JSON.stringify(draft) ||
       window.confirm("Bỏ các thay đổi chưa lưu?")
     )
       onClose();
-  }, [node, draft, onClose]);
+  }, [node, draft, onClose, saving, pendingUploads]);
   async function save(event: React.FormEvent) {
     event.preventDefault();
+    if (pendingUploads) {
+      setError("Vui lòng đợi ảnh tải lên hoàn tất trước khi lưu.");
+      return;
+    }
     setSaving(true);
     try {
       const result = nodeSchema.parse(draft);
@@ -289,10 +310,19 @@ export function NodeEditor({
       onClose={close}
     >
       <form onSubmit={save} className="editor-form">
-        <fieldset disabled={saving} className="permission-fields">
+        <fieldset
+          disabled={saving || pendingUploads > 0}
+          className="permission-fields"
+        >
           <p className="muted">
             Vị trí: {parentName} · Đóng góp: {node.contributorName ?? "Bạn"}
           </p>
+          {node.updatedAt && (
+            <p className="muted editor-attribution">
+              Sửa lần cuối: {node.updatedByName ?? "Thành viên"} ·{" "}
+              {new Date(node.updatedAt).toLocaleString("vi-VN")}
+            </p>
+          )}
           <fieldset
             disabled={!canEdit(permissions, node)}
             className="permission-fields"
@@ -348,6 +378,7 @@ export function NodeEditor({
                   <VariantEditor
                     key={v.id}
                     variant={v}
+                    onUploadChange={uploadChange}
                     onChange={(value) =>
                       setDraft({
                         ...draft,
@@ -398,6 +429,7 @@ export function NodeEditor({
                 </p>
                 <ResourceEditor
                   resources={draft.resources}
+                  onUploadChange={uploadChange}
                   onChange={(resources) => setDraft({ ...draft, resources })}
                 />
               </section>
@@ -416,7 +448,7 @@ export function NodeEditor({
               <button
                 type="submit"
                 className="button primary"
-                disabled={saving}
+                disabled={saving || pendingUploads > 0}
               >
                 {saving ? "Đang lưu…" : "Lưu thay đổi"}
               </button>

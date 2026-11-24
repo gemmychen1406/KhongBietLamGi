@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   nodes: [] as ActivityNode[],
   fail: false,
   loadFail: false,
+  legacySchema: false,
 }));
 vi.mock("../src/services/supabase", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/services/supabase")>()),
@@ -30,7 +31,37 @@ vi.mock("../src/services/community", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/services/community")>()),
   loadLibrary: vi.fn(async () => {
     if (state.loadFail) throw new TypeError("Network failed");
-    return structuredClone(state.nodes);
+    const nodes = structuredClone(state.nodes);
+    if (state.legacySchema) {
+      const strip = (ns: ActivityNode[]) =>
+        ns.forEach((n) => {
+          delete n.revision;
+          n.resources.forEach((r) => delete r.revision);
+          n.variants.forEach((v) => {
+            delete v.revision;
+            v.resources.forEach((r) => delete r.revision);
+          });
+          strip(n.children);
+        });
+      strip(nodes);
+    } else {
+      const stamp = (ns: ActivityNode[]) =>
+        ns.forEach((n) => {
+          n.revision ??= 0;
+          n.resources.forEach((r) => {
+            r.revision ??= 0;
+          });
+          n.variants.forEach((v) => {
+            v.revision ??= 0;
+            v.resources.forEach((r) => {
+              r.revision ??= 0;
+            });
+          });
+          stamp(n.children);
+        });
+      stamp(nodes);
+    }
+    return nodes;
   }),
   saveLibrary: vi.fn(async (_before, after: ActivityNode[]) => {
     if (state.fail) throw { code: "42501" };
@@ -42,6 +73,7 @@ import { loadLibrary, saveLibrary } from "../src/services/community";
 import { STORAGE_KEY, parseDocument } from "../src/services/storage";
 const fixture = (): ActivityNode => ({
   id: "task",
+  revision: 0,
   title: "Hoạt động A",
   description: "Gợi ý A",
   kind: "activity",
@@ -58,6 +90,7 @@ beforeEach(() => {
   state.nodes = [fixture()];
   state.fail = false;
   state.loadFail = false;
+  state.legacySchema = false;
   window.history.replaceState(null, "", "/#random");
   vi.spyOn(window, "confirm").mockReturnValue(true);
   vi.spyOn(window, "scrollTo").mockImplementation(() => {});
@@ -217,8 +250,10 @@ describe("UI cộng đồng", () => {
       },
     ];
     await mounted("mine");
-    expect(screen.getByText("Tài nguyên của B")).toBeTruthy();
-    expect(screen.getByText(/1 đóng góp/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: /Chủ đề và tài nguyên/ }));
+    expect(
+      screen.getByRole("heading", { name: "Tài nguyên của B" }),
+    ).toBeTruthy();
   });
   it("giữ nguyên JSON cũ khi nâng cấp và chỉ lấy lịch sử, thư viện lấy từ server", async () => {
     const old: AppDocument = {
@@ -273,7 +308,7 @@ describe("Backup cộng đồng", () => {
     expect(state.nodes[1].id).not.toBe("task");
     expect(state.nodes[1].createdBy).toBeUndefined();
   });
-  it("sửa tài nguyên người khác bị khóa nhưng member thêm được variant mới", async () => {
+  it("member sửa được tài nguyên/variant người khác nhưng không có nút xóa", async () => {
     member();
     state.nodes[0].variants = [
       {
@@ -304,7 +339,7 @@ describe("Backup cộng đồng", () => {
       (screen.getByLabelText("Tên biến thể *") as HTMLInputElement).closest(
         "fieldset",
       )?.disabled,
-    ).toBe(true);
+    ).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Thêm biến thể" }));
     const names = screen.getAllByLabelText("Tên biến thể *");
     fireEvent.change(names[1], { target: { value: "Variant B" } });
@@ -320,11 +355,7 @@ describe("Random cho khách và mẫu chỉ đọc", () => {
     await mounted();
     for (const title of ["Nội trợ", "Nghệ thuật", "Kiến thức"])
       expect(screen.getByRole("button", { name: title })).toBeTruthy();
-    expect(
-      screen.getByText("Dữ liệu mẫu cục bộ · Chỉ đọc · Chưa đồng bộ", {
-        selector: "strong",
-      }),
-    ).toBeTruthy();
+    expect(screen.getByText("Chỉ đọc · Chưa đồng bộ")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Nghệ thuật" }));
     fireEvent.click(screen.getByRole("button", { name: "Random ngay!" }));
     await waitFor(() =>
@@ -375,11 +406,7 @@ describe("Random cho khách và mẫu chỉ đọc", () => {
     await mounted();
     state.nodes = [fixture()];
     fireEvent.click(screen.getByRole("button", { name: "Tải lại thư viện" }));
-    await waitFor(() =>
-      expect(
-        screen.getByText("Thư viện cộng đồng · Đã tải từ Supabase"),
-      ).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText("Đã cập nhật")).toBeTruthy());
     expect(
       screen.queryByText("Dữ liệu mẫu cục bộ · Chỉ đọc · Chưa đồng bộ", {
         selector: "strong",
@@ -399,9 +426,7 @@ describe("Random cho khách và mẫu chỉ đọc", () => {
     state.loadFail = true;
     fireEvent.click(screen.getByRole("button", { name: "Tải lại thư viện" }));
     await waitFor(() =>
-      expect(
-        screen.getByText("Thư viện cộng đồng đã tải trước đó · Chưa cập nhật"),
-      ).toBeTruthy(),
+      expect(screen.getByText("Bản đã tải · Chỉ đọc")).toBeTruthy(),
     );
     expect(screen.queryByRole("button", { name: "Nội trợ" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Random ngay!" }));
@@ -423,11 +448,7 @@ describe("Random cho khách và mẫu chỉ đọc", () => {
         .source,
     ).toBe("sample");
     resolve([fixture()]);
-    await waitFor(() =>
-      expect(
-        screen.getByText("Thư viện cộng đồng · Đã tải từ Supabase"),
-      ).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText("Đã cập nhật")).toBeTruthy());
     // The result card is remounted when source changes; the sample snapshot stays in personal history.
     expect(
       parseDocument(localStorage.getItem(PERSONAL_KEY)!).history[0].result
@@ -436,5 +457,50 @@ describe("Random cho khách và mẫu chỉ đọc", () => {
     expect(
       screen.queryByText("Mẫu cục bộ · Chưa đồng bộ", { selector: "small" }),
     ).toBeNull();
+  });
+});
+
+describe("Quyền sửa chung và điều hướng đóng góp", () => {
+  it("Member B sửa tên của A nhưng không có nút xóa A", async () => {
+    member();
+    await mounted("library");
+    expect(
+      screen.queryByRole("button", { name: "Xóa Hoạt động A" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sửa Hoạt động A" }));
+    expect(
+      (screen.getByLabelText("Tên hoạt động *") as HTMLInputElement).closest(
+        "fieldset",
+      )?.disabled,
+    ).toBe(false);
+    fireEvent.change(screen.getByLabelText("Tên hoạt động *"), {
+      target: { value: "A được B sửa" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
+    await waitFor(() => expect(state.nodes[0].title).toBe("A được B sửa"));
+    expect(state.nodes[0].createdBy).toBe("A");
+  });
+  it("chưa chạy 003 thì UI giữ chế độ chỉ đọc, hướng dẫn cập nhật thay vì bật nút ghi", async () => {
+    member();
+    state.legacySchema = true;
+    await mounted("library");
+    expect(screen.getByText("Chỉ đọc · Cần cập nhật quyền")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Sửa Hoạt động A" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByLabelText("Thông tin nguồn dữ liệu"));
+    expect(
+      screen.getByText(/Chủ website cần chạy 003_collaborative_editing.sql/),
+    ).toBeTruthy();
+  });
+  it("Chỉnh sửa trong đóng góp mở đúng editor của node trong Thư viện", async () => {
+    member();
+    state.nodes[0].createdBy = "B";
+    await mounted("mine");
+    fireEvent.click(screen.getByRole("button", { name: "Chỉnh sửa" }));
+    expect(await screen.findByLabelText("Tên hoạt động *")).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Tên hoạt động *") as HTMLInputElement).value,
+    ).toBe("Hoạt động A");
   });
 });

@@ -23,7 +23,11 @@ import {
   api,
   communityError,
 } from "./services/supabase";
-import { loadLibrary, saveLibrary } from "./services/community";
+import {
+  loadLibrary,
+  saveLibrary,
+  supportsSharedEditing,
+} from "./services/community";
 import { PermissionContext } from "./services/permissions";
 import type { ActivityNode, AppDocument } from "./types";
 import { RandomPage } from "./pages/RandomPage";
@@ -74,6 +78,11 @@ export function asNewContributions(nodes: ActivityNode[]): ActivityNode[] {
     id: crypto.randomUUID(),
     createdBy: undefined,
     systemSeedKey: undefined,
+    createdAt: undefined,
+    updatedAt: undefined,
+    updatedBy: undefined,
+    updatedByName: undefined,
+    revision: undefined,
     contributorName: undefined,
     children: asNewContributions(n.children),
     resources: n.resources.map((r) => ({
@@ -81,6 +90,11 @@ export function asNewContributions(nodes: ActivityNode[]): ActivityNode[] {
       id: crypto.randomUUID(),
       createdBy: undefined,
       systemSeedKey: undefined,
+      createdAt: undefined,
+      updatedAt: undefined,
+      updatedBy: undefined,
+      updatedByName: undefined,
+      revision: undefined,
       contributorName: undefined,
     })),
     variants: n.variants.map((v) => ({
@@ -88,12 +102,22 @@ export function asNewContributions(nodes: ActivityNode[]): ActivityNode[] {
       id: crypto.randomUUID(),
       createdBy: undefined,
       systemSeedKey: undefined,
+      createdAt: undefined,
+      updatedAt: undefined,
+      updatedBy: undefined,
+      updatedByName: undefined,
+      revision: undefined,
       contributorName: undefined,
       resources: v.resources.map((r) => ({
         ...r,
         id: crypto.randomUUID(),
         createdBy: undefined,
         systemSeedKey: undefined,
+        createdAt: undefined,
+        updatedAt: undefined,
+        updatedBy: undefined,
+        updatedByName: undefined,
+        revision: undefined,
         contributorName: undefined,
       })),
     })),
@@ -107,6 +131,10 @@ export default function App() {
   const [session, setSession] = useState(getSession);
   const [admin, setAdmin] = useState(false);
   const [page, setPage] = useState<Page>(readPage);
+  const [librarySelection, setLibrarySelection] = useState<{
+    nodeId: string;
+    requestId: number;
+  } | null>(null);
   const [backup, setBackup] = useState(false);
   const [loading, setLoading] = useState(configured);
   const [ready, setReady] = useState(false);
@@ -116,6 +144,8 @@ export default function App() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const saving = useRef(false);
+  const editingReady =
+    source === "community" && supportsSharedEditing(doc.nodes);
   const closeBackup = useCallback(() => setBackup(false), []);
   const refresh = useCallback(async () => {
     const version = ++requestVersion.current;
@@ -195,6 +225,10 @@ export default function App() {
       throw new Error(
         "Dữ liệu mẫu cục bộ chỉ đọc, chưa được đồng bộ lên cộng đồng.",
       );
+    if (!editingReady)
+      throw new Error(
+        "Cần chạy migration 003_collaborative_editing.sql và tải lại để bật chỉnh sửa cộng đồng.",
+      );
     if (!ready || loading || saving.current)
       throw new Error("Hãy chờ thư viện tải xong trước khi lưu.");
     saving.current = true;
@@ -225,7 +259,7 @@ export default function App() {
         userId: session?.user.id ?? null,
         admin,
         community: true,
-        readOnly: source === "sample" || !ready || loading,
+        readOnly: source === "sample" || !ready || loading || !editingReady,
         librarySource: source,
       }}
     >
@@ -275,6 +309,7 @@ export default function App() {
           <div className="workspace-bar">
             <LibraryStatus
               source={source}
+              editingReady={editingReady}
               configured={configured}
               loading={loading}
               ready={ready}
@@ -321,6 +356,8 @@ export default function App() {
               doc={doc}
               onChange={changeLibrary}
               onReset={() => {}}
+              initialSelection={librarySelection}
+              onSelectionHandled={() => setLibrarySelection(null)}
             />
           )}
           {page === "history" && (
@@ -333,19 +370,25 @@ export default function App() {
           {page === "mine" && (
             <MyContributions
               nodes={doc.nodes}
-              onOpenLibrary={() => navigate("library")}
-            />
-          )}
-          {admin && page === "mine" && (
-            <AdminPanel
-              onRoleChange={() => {
-                void api<boolean>("/rest/v1/rpc/is_admin", {
-                  method: "POST",
-                  body: "{}",
-                })
-                  .then(setAdmin)
-                  .catch(() => setAdmin(false));
+              onOpenLibrary={(nodeId) => {
+                if (nodeId)
+                  setLibrarySelection({ nodeId, requestId: Date.now() });
+                navigate("library");
               }}
+              adminPanel={
+                admin ? (
+                  <AdminPanel
+                    onRoleChange={() => {
+                      void api<boolean>("/rest/v1/rpc/is_admin", {
+                        method: "POST",
+                        body: "{}",
+                      })
+                        .then(setAdmin)
+                        .catch(() => setAdmin(false));
+                    }}
+                  />
+                ) : undefined
+              }
             />
           )}
         </main>
@@ -380,9 +423,7 @@ export default function App() {
             doc={doc}
             community
             librarySource={source}
-            canImport={
-              Boolean(session) && ready && source === "community" && !loading
-            }
+            canImport={Boolean(session) && ready && editingReady && !loading}
             onImport={importBackup}
             onClose={closeBackup}
           />

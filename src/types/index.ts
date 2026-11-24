@@ -1,4 +1,9 @@
 export interface Contribution {
+  createdAt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+  updatedByName?: string;
+  revision?: number;
   systemSeedKey?: string;
   createdBy?: string;
   contributorName?: string;

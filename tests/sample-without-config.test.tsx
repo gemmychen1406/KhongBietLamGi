@@ -18,9 +18,10 @@ it("không cấu hình Supabase: khách vẫn chọn nhóm, random mẫu và lư
   localStorage.clear();
   window.history.replaceState(null, "", "/#random");
   render(<App />);
-  expect(screen.getByRole("alert").textContent).toContain(
-    "Chưa kết nối Supabase",
-  );
+  expect(screen.getByText("Mẫu cục bộ")).toBeTruthy();
+  expect(screen.getByText("Chỉ đọc · Chưa đồng bộ")).toBeTruthy();
+  fireEvent.click(screen.getByLabelText("Thông tin nguồn dữ liệu"));
+  expect(screen.getByText(/Chưa kết nối Supabase/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Nội trợ" }));
   fireEvent.click(screen.getByRole("button", { name: "Random ngay!" }));
   const entry = parseDocument(localStorage.getItem(PERSONAL_KEY)!).history[0];

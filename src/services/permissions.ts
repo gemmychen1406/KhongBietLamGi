@@ -16,7 +16,11 @@ export const usePermissions = () => useContext(PermissionContext);
 export function canContribute(p: Permissions) {
   return !p.readOnly && (!p.community || Boolean(p.userId));
 }
-export function canEdit(p: Permissions, item: Contribution) {
+// Editing public content and deleting owned content are deliberately separate permissions.
+export function canEdit(p: Permissions, _item?: Contribution) {
+  return canContribute(p);
+}
+export function canDelete(p: Permissions, item: Contribution) {
   return (
     canContribute(p) &&
     (!p.community ||
