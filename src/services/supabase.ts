@@ -160,10 +160,18 @@ export async function signUp(
   password: string,
   displayName: string,
 ) {
-  return acceptAuth("/auth/v1/signup", {
+  const redirect = encodeURIComponent(new URL("/", location.origin).href);
+  return acceptAuth(`/auth/v1/signup?redirect_to=${redirect}`, {
     email,
     password,
     data: { display_name: displayName },
+  });
+}
+export async function resendConfirmation(email: string) {
+  const redirect = encodeURIComponent(new URL("/", location.origin).href);
+  await request(`/auth/v1/resend?redirect_to=${redirect}`, {
+    method: "POST",
+    body: JSON.stringify({ type: "signup", email: email.trim() }),
   });
 }
 export async function signOut() {
@@ -190,6 +198,11 @@ export function communityError(error: unknown): string {
     return "Bạn chưa đăng nhập hoặc không có quyền thực hiện thao tác này.";
   if (e.code === "40001")
     return "Nội dung đã thay đổi hoặc bạn không còn quyền. Hãy tải lại thư viện trước khi sửa tiếp.";
+  if (
+    e.code === "over_email_send_rate_limit" ||
+    e.code === "over_request_rate_limit"
+  )
+    return "Bạn đã gửi yêu cầu quá nhanh. Hãy đợi một lúc rồi gửi lại email xác nhận.";
   if (e.code === "invalid_credentials") return "Email hoặc mật khẩu chưa đúng.";
   if (e.code === "email_not_confirmed")
     return "Hãy xác nhận email trước khi đăng nhập.";

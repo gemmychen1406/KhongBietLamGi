@@ -31,6 +31,7 @@ import { LibraryPage } from "./pages/LibraryPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { BackupDialog } from "./components/BackupDialog";
 import { AdminPanel } from "./components/AdminPanel";
+import { LibraryStatus } from "./components/LibraryStatus";
 import { AuthPanel } from "./components/AuthPanel";
 import { MyContributions } from "./pages/MyContributions";
 export const PERSONAL_KEY = "hom-nay-lam-gi.personal.v1";
@@ -271,48 +272,17 @@ export default function App() {
           </div>
         </header>
         <main className="main-content">
-          <AuthPanel session={session} admin={admin} />
-          {!configured && (
-            <p className="alert error" role="alert">
-              Chưa kết nối Supabase. Bạn vẫn có thể chọn nhóm và random dữ liệu
-              mẫu cục bộ ở chế độ chỉ đọc. Dữ liệu mẫu này chưa đồng bộ lên cộng
-              đồng.
-            </p>
-          )}
-          {configured && (
-            <div className="community-toolbar">
-              <span>
-                {loading
-                  ? "Đang tải thư viện…"
-                  : source === "community"
-                    ? ready
-                      ? "Thư viện cộng đồng · Đã tải từ Supabase"
-                      : "Thư viện cộng đồng đã tải trước đó · Chưa cập nhật"
-                    : "Dữ liệu mẫu cục bộ · Chỉ đọc · Chưa đồng bộ"}
-              </span>
-              <button
-                className="button small secondary"
-                disabled={loading}
-                onClick={() => void refresh()}
-              >
-                Tải lại thư viện
-              </button>
-            </div>
-          )}
-          {source === "sample" && (
-            <div className="alert sample-notice" role="status">
-              <strong>Dữ liệu mẫu cục bộ · Chỉ đọc · Chưa đồng bộ</strong>
-              <p>
-                {loading
-                  ? "Đang kết nối thư viện cộng đồng. Trong lúc chờ, bạn có thể chọn nhóm và random dữ liệu mẫu."
-                  : error
-                    ? "Chưa tải được cộng đồng. Các hoạt động đang hiển thị là dữ liệu mẫu trên website."
-                    : configured
-                      ? "Thư viện cộng đồng chưa có dữ liệu. Bạn có thể random mẫu ngay; dữ liệu cộng đồng sẽ hiển thị sau khi khởi tạo và tải lại."
-                      : "Bạn có thể random ngay với ba nhóm Nội trợ, Nghệ thuật và Kiến thức."}
-              </p>
-            </div>
-          )}
+          <div className="workspace-bar">
+            <LibraryStatus
+              source={source}
+              configured={configured}
+              loading={loading}
+              ready={ready}
+              error={error}
+              onRefresh={() => void refresh()}
+            />
+            <AuthPanel session={session} admin={admin} />
+          </div>
           {error && (
             <p className="alert error" role="alert">
               {error}
