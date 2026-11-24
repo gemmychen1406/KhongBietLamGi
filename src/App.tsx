@@ -46,7 +46,7 @@ function initialState(): { doc: AppDocument; error: string; blocked: boolean } {
     return {
       doc: {
         schemaVersion: 1,
-        nodes: [],
+        nodes: createSeedDocument().nodes,
         history: old?.history ?? [],
         settings: { autoSaveHistory: true },
       },
@@ -57,7 +57,7 @@ function initialState(): { doc: AppDocument; error: string; blocked: boolean } {
     return {
       doc: {
         schemaVersion: 1,
-        nodes: [],
+        nodes: createSeedDocument().nodes,
         history: [],
         settings: { autoSaveHistory: true },
       },
@@ -72,23 +72,27 @@ export function asNewContributions(nodes: ActivityNode[]): ActivityNode[] {
     ...n,
     id: crypto.randomUUID(),
     createdBy: undefined,
+    systemSeedKey: undefined,
     contributorName: undefined,
     children: asNewContributions(n.children),
     resources: n.resources.map((r) => ({
       ...r,
       id: crypto.randomUUID(),
       createdBy: undefined,
+      systemSeedKey: undefined,
       contributorName: undefined,
     })),
     variants: n.variants.map((v) => ({
       ...v,
       id: crypto.randomUUID(),
       createdBy: undefined,
+      systemSeedKey: undefined,
       contributorName: undefined,
       resources: v.resources.map((r) => ({
         ...r,
         id: crypto.randomUUID(),
         createdBy: undefined,
+        systemSeedKey: undefined,
         contributorName: undefined,
       })),
     })),
@@ -105,22 +109,38 @@ export default function App() {
   const [backup, setBackup] = useState(false);
   const [loading, setLoading] = useState(configured);
   const [ready, setReady] = useState(false);
+  const [source, setSource] = useState<"sample" | "community">("sample");
+  const sourceRef = useRef<"sample" | "community">("sample");
+  const requestVersion = useRef(0);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const saving = useRef(false);
   const closeBackup = useCallback(() => setBackup(false), []);
   const refresh = useCallback(async () => {
+    const version = ++requestVersion.current;
     setLoading(true);
     setError("");
+    setReady(false);
     try {
       const nodes = await loadLibrary();
-      setDoc((d) => ({ ...d, nodes }));
+      if (version !== requestVersion.current) return;
+      const nextSource = nodes.length ? "community" : "sample";
+      sourceRef.current = nextSource;
+      setSource(nextSource);
+      setDoc((d) => ({
+        ...d,
+        nodes: nodes.length ? nodes : createSeedDocument().nodes,
+      }));
       setReady(true);
     } catch (e) {
+      if (version !== requestVersion.current) return;
       setError(communityError(e));
+      // Preserve previously downloaded community content on a temporary outage.
+      if (sourceRef.current !== "community")
+        setDoc((d) => ({ ...d, nodes: createSeedDocument().nodes }));
       setReady(false);
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, []);
   useEffect(() => onSession(setSession), []);
@@ -170,6 +190,10 @@ export default function App() {
   }, [toast]);
   async function changeLibrary(next: AppDocument, baseline: AppDocument = doc) {
     if (!session) throw { code: "42501" };
+    if (source !== "community")
+      throw new Error(
+        "Dữ liệu mẫu cục bộ chỉ đọc, chưa được đồng bộ lên cộng đồng.",
+      );
     if (!ready || loading || saving.current)
       throw new Error("Hãy chờ thư viện tải xong trước khi lưu.");
     saving.current = true;
@@ -196,7 +220,13 @@ export default function App() {
   }
   return (
     <PermissionContext.Provider
-      value={{ userId: session?.user.id ?? null, admin, community: true }}
+      value={{
+        userId: session?.user.id ?? null,
+        admin,
+        community: true,
+        readOnly: source === "sample" || !ready || loading,
+        librarySource: source,
+      }}
     >
       <div className="app-shell">
         <header className="site-header">
@@ -244,9 +274,9 @@ export default function App() {
           <AuthPanel session={session} admin={admin} />
           {!configured && (
             <p className="alert error" role="alert">
-              Chưa cấu hình Supabase. Thêm biến môi trường theo docs/SUPABASE.md
-              để tải thư viện cộng đồng. Dữ liệu cũ trên trình duyệt được giữ
-              nguyên.
+              Chưa kết nối Supabase. Bạn vẫn có thể chọn nhóm và random dữ liệu
+              mẫu cục bộ ở chế độ chỉ đọc. Dữ liệu mẫu này chưa đồng bộ lên cộng
+              đồng.
             </p>
           )}
           {configured && (
@@ -254,7 +284,11 @@ export default function App() {
               <span>
                 {loading
                   ? "Đang tải thư viện…"
-                  : "Thư viện cộng đồng · Dữ liệu công khai"}
+                  : source === "community"
+                    ? ready
+                      ? "Thư viện cộng đồng · Đã tải từ Supabase"
+                      : "Thư viện cộng đồng đã tải trước đó · Chưa cập nhật"
+                    : "Dữ liệu mẫu cục bộ · Chỉ đọc · Chưa đồng bộ"}
               </span>
               <button
                 className="button small secondary"
@@ -263,6 +297,20 @@ export default function App() {
               >
                 Tải lại thư viện
               </button>
+            </div>
+          )}
+          {source === "sample" && (
+            <div className="alert sample-notice" role="status">
+              <strong>Dữ liệu mẫu cục bộ · Chỉ đọc · Chưa đồng bộ</strong>
+              <p>
+                {loading
+                  ? "Đang kết nối thư viện cộng đồng. Trong lúc chờ, bạn có thể chọn nhóm và random dữ liệu mẫu."
+                  : error
+                    ? "Chưa tải được cộng đồng. Các hoạt động đang hiển thị là dữ liệu mẫu trên website."
+                    : configured
+                      ? "Thư viện cộng đồng chưa có dữ liệu. Bạn có thể random mẫu ngay; dữ liệu cộng đồng sẽ hiển thị sau khi khởi tạo và tải lại."
+                      : "Bạn có thể random ngay với ba nhóm Nội trợ, Nghệ thuật và Kiến thức."}
+              </p>
             </div>
           )}
           {error && (
@@ -292,6 +340,7 @@ export default function App() {
           )}
           {page === "random" && (
             <RandomPage
+              key={source}
               doc={doc}
               onChange={setDoc}
               goLibrary={() => navigate("library")}
@@ -329,39 +378,15 @@ export default function App() {
               }}
             />
           )}
-          {admin && page === "library" && (
-            <button
-              className="button secondary"
-              disabled={!ready || loading}
-              onClick={async () => {
-                if (
-                  !window.confirm(
-                    "Thêm bản sao thư viện mẫu vào cộng đồng? Nội dung hiện có được giữ nguyên. Chỉ chạy một lần để tránh trùng nội dung.",
-                  )
-                )
-                  return;
-                try {
-                  await changeLibrary({
-                    ...doc,
-                    nodes: [
-                      ...doc.nodes,
-                      ...asNewContributions(createSeedDocument().nodes),
-                    ],
-                  });
-                } catch (e) {
-                  setError(communityError(e));
-                }
-              }}
-            >
-              Thêm dữ liệu mẫu (Admin)
-            </button>
-          )}
         </main>
         <footer className="site-footer">
           <div>
             <span className="footer-brand">✦ Một chút cảm hứng, mỗi ngày.</span>
             <span className="local-note">
-              Thư viện: Supabase · Lịch sử: thiết bị này
+              {source === "community"
+                ? "Thư viện: Supabase"
+                : "Thư viện: Mẫu cục bộ, chưa đồng bộ"}{" "}
+              · Lịch sử: thiết bị này
             </span>
           </div>
           <button
@@ -384,7 +409,10 @@ export default function App() {
           <BackupDialog
             doc={doc}
             community
-            canImport={Boolean(session) && ready}
+            librarySource={source}
+            canImport={
+              Boolean(session) && ready && source === "community" && !loading
+            }
             onImport={importBackup}
             onClose={closeBackup}
           />

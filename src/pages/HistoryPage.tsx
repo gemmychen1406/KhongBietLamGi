@@ -146,6 +146,9 @@ export function HistoryPage({
                       .join(" › ")}
                   </span>
                   <h3>{entry.result.activity.title}</h3>
+                  {entry.result.source === "sample" && (
+                    <small>Mẫu cục bộ · Chưa đồng bộ</small>
+                  )}
                   {entry.result.variant && (
                     <span className="history-variant">
                       {entry.result.variant.title}

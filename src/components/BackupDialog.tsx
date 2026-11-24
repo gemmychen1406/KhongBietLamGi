@@ -22,10 +22,12 @@ export function BackupDialog({
   onClose,
   community = false,
   canImport = true,
+  librarySource = "community",
 }: {
   doc: AppDocument;
   onImport: (doc: AppDocument) => void | Promise<void>;
   community?: boolean;
+  librarySource?: "sample" | "community";
   canImport?: boolean;
   onClose: () => void;
 }) {
@@ -55,7 +57,9 @@ export function BackupDialog({
         <div className="backup-info">
           <ShieldCheck size={25} />
           <p>
-            {community ? (
+            {librarySource === "sample" ? (
+              "Bản sao hiện chứa dữ liệu mẫu cục bộ chưa đồng bộ và lịch sử cá nhân. Thư viện mẫu chỉ đọc; chưa thể nhập vào cộng đồng ở chế độ này."
+            ) : community ? (
               "Thư viện nằm trên Supabase; lịch sử nằm trên thiết bị này. Bản JSON gồm cả hai. Nhập sẽ thêm bản sao đóng góp với ID mới, không ghi đè cộng đồng, và thay lịch sử cá nhân."
             ) : (
               <>
@@ -80,7 +84,7 @@ export function BackupDialog({
               try {
                 downloadJson(
                   serializeDocument(doc),
-                  `hom-nay-lam-gi-${new Date().toISOString().slice(0, 10)}.json`,
+                  `hom-nay-lam-gi-${librarySource === "sample" ? "mau-cuc-bo-" : ""}${new Date().toISOString().slice(0, 10)}.json`,
                 );
                 setMessage(
                   "Đã tạo file sao lưu. Kiểm tra thư mục tải xuống của trình duyệt.",

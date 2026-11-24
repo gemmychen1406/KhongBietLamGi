@@ -62,23 +62,30 @@ async function request<T>(
 ): Promise<T> {
   if (!configured)
     throw new Error("Chưa cấu hình Supabase. Xem docs/SUPABASE.md.");
-  const response = await fetch(`${url}${path}`, {
-    ...init,
-    headers: {
-      apikey: key!,
-      ...(token
-        ? { Authorization: `Bearer ${token}` }
-        : key?.startsWith("eyJ")
-          ? { Authorization: `Bearer ${key}` }
-          : {}),
-      "Content-Type": "application/json",
-      ...init.headers,
-    },
-  });
-  const body: unknown = await response.json().catch(() => null);
-  if (!response.ok)
-    throw body ?? { message: `Dịch vụ trả về lỗi ${response.status}` };
-  return body as T;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(`${url}${path}`, {
+      ...init,
+      signal: init.signal ?? controller.signal,
+      headers: {
+        apikey: key!,
+        ...(token
+          ? { Authorization: `Bearer ${token}` }
+          : key?.startsWith("eyJ")
+            ? { Authorization: `Bearer ${key}` }
+            : {}),
+        "Content-Type": "application/json",
+        ...init.headers,
+      },
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok)
+      throw body ?? { message: `Dịch vụ trả về lỗi ${response.status}` };
+    return body as T;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 async function acceptAuth(path: string, body: object) {
   const data = await request<Session & { expires_in?: number }>(path, {
@@ -135,6 +142,13 @@ async function accessToken() {
   }
   return session?.access_token;
 }
+// Public library reads are independent of expired or broken login sessions.
+export async function publicApi<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  return request<T>(path, init);
+}
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return request<T>(path, init, await accessToken());
 }
@@ -160,7 +174,11 @@ export function publicImageUrl(path: string) {
   return `${url}/storage/v1/object/public/activity-images/${path}`;
 }
 export function communityError(error: unknown): string {
-  const e = error as {
+  if (error instanceof DOMException && error.name === "AbortError")
+    return "Kết nối Supabase quá lâu. Bạn vẫn có thể random mẫu và thử tải lại sau.";
+  if (error instanceof TypeError)
+    return "Chưa kết nối được Supabase. Hãy kiểm tra mạng và thử tải lại.";
+  const e = (error ?? {}) as {
     code?: string;
     message?: string;
     msg?: string;

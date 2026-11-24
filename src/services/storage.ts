@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ActivityNode, AppDocument } from "../types";
 export const STORAGE_KEY = "hom-nay-lam-gi.document";
 const attribution = {
+  systemSeedKey: z.string().min(1).max(2000).optional(),
   createdBy: z.string().optional(),
   contributorName: z.string().optional(),
 };
@@ -81,6 +82,7 @@ export const nodeSchema: z.ZodType<ActivityNode> = z.lazy(() =>
 );
 const resultSchema = z
   .object({
+    source: z.enum(["sample", "community"]).optional(),
     path: z.array(z.object({ id: title, title }).strict()).min(1),
     activity: nodeSchema,
     variant: variantSchema.optional(),

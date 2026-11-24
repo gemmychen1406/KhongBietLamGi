@@ -16,6 +16,7 @@ import {
 import type { AppDocument, Result } from "../types";
 import { chooseResult, eligibleLeaves } from "../utils/random";
 import { Resources } from "../components/Resources";
+import { usePermissions } from "../services/permissions";
 import { id } from "../utils/id";
 export function RandomPage({
   doc,
@@ -26,6 +27,7 @@ export function RandomPage({
   onChange: (doc: AppDocument) => void;
   goLibrary: () => void;
 }) {
+  const { librarySource } = usePermissions();
   const [scope, setScope] = useState("");
   const [result, setResult] = useState<Result | null>(null);
   const [entryId, setEntryId] = useState("");
@@ -35,11 +37,14 @@ export function RandomPage({
     (p) => !activeScope || p[0].id === activeScope,
   ).length;
   function random(fromLevel?: number) {
-    const next = chooseResult(doc.nodes, {
+    const chosen = chooseResult(doc.nodes, {
       scopeId: activeScope || undefined,
       previous: result ?? undefined,
       fromLevel,
     });
+    const next: Result | null = chosen
+      ? { ...chosen, source: librarySource ?? "community" }
+      : null;
     setResult(next);
     if (!next) {
       setNotice(
@@ -167,6 +172,11 @@ export function RandomPage({
                   <Leaf size={25} />
                 </div>
                 <h2>{result.activity.title}</h2>
+                <small>
+                  {result.source === "sample"
+                    ? "Mẫu cục bộ · Chưa đồng bộ"
+                    : "Dữ liệu cộng đồng"}
+                </small>
                 {result.activity.contributorName && (
                   <small>Đóng góp: {result.activity.contributorName}</small>
                 )}

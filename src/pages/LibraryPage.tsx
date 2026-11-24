@@ -22,7 +22,11 @@ import {
   matchesTree,
 } from "../utils/tree";
 import { id } from "../utils/id";
-import { usePermissions, canEdit } from "../services/permissions";
+import {
+  usePermissions,
+  canEdit,
+  canContribute,
+} from "../services/permissions";
 import { communityError } from "../services/supabase";
 import { NodeEditor } from "../components/NodeEditor";
 interface Editing {
@@ -99,34 +103,33 @@ function TreeItem({
           </span>
         </button>
         <div className="tree-actions">
-          {node.kind === "group" &&
-            (!permissions.community || permissions.userId) && (
-              <>
-                <button
-                  className="icon-button"
-                  title="Thêm nhóm con"
-                  aria-label={`Thêm nhóm con vào ${node.title}`}
-                  onClick={() => {
-                    setExpanded(true);
-                    onAdd("group", node.id, node.title);
-                  }}
-                >
-                  <Folder size={16} />
-                  <Plus size={10} className="plus-overlay" />
-                </button>
-                <button
-                  className="icon-button"
-                  title="Thêm hoạt động"
-                  aria-label={`Thêm hoạt động vào ${node.title}`}
-                  onClick={() => {
-                    setExpanded(true);
-                    onAdd("activity", node.id, node.title);
-                  }}
-                >
-                  <Plus size={18} />
-                </button>
-              </>
-            )}
+          {node.kind === "group" && canContribute(permissions) && (
+            <>
+              <button
+                className="icon-button"
+                title="Thêm nhóm con"
+                aria-label={`Thêm nhóm con vào ${node.title}`}
+                onClick={() => {
+                  setExpanded(true);
+                  onAdd("group", node.id, node.title);
+                }}
+              >
+                <Folder size={16} />
+                <Plus size={10} className="plus-overlay" />
+              </button>
+              <button
+                className="icon-button"
+                title="Thêm hoạt động"
+                aria-label={`Thêm hoạt động vào ${node.title}`}
+                onClick={() => {
+                  setExpanded(true);
+                  onAdd("activity", node.id, node.title);
+                }}
+              >
+                <Plus size={18} />
+              </button>
+            </>
+          )}
           {canEdit(permissions, node) && (
             <>
               <button
@@ -272,7 +275,7 @@ export function LibraryPage({
           </h1>
           <p>Chăm chút những điều muốn làm. Bắt đầu từ một ý tưởng nhỏ.</p>
         </div>
-        {(!permissions.community || permissions.userId) && (
+        {canContribute(permissions) && (
           <div className="error-actions">
             <button
               className="button secondary"
@@ -367,9 +370,11 @@ export function LibraryPage({
           )}
           <div className="library-bottom">
             <span className="subtle">
-              {permissions.community
-                ? "Thư viện công khai được lưu trên Supabase."
-                : "Thay đổi được tự lưu trên trình duyệt này."}
+              {permissions.librarySource === "sample"
+                ? "Dữ liệu mẫu cục bộ · Chỉ đọc · Chưa đồng bộ."
+                : permissions.community
+                  ? "Thư viện công khai được lưu trên Supabase."
+                  : "Thay đổi được tự lưu trên trình duyệt này."}
             </span>
             {!permissions.community && (
               <button className="text-button danger" onClick={onReset}>

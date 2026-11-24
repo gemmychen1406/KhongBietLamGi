@@ -10,7 +10,11 @@ import {
 import type { ActivityNode, Resource, Variant } from "../types";
 import { nodeSchema, readableError } from "../services/storage";
 import { id } from "../utils/id";
-import { usePermissions, canEdit } from "../services/permissions";
+import {
+  usePermissions,
+  canEdit,
+  canContribute,
+} from "../services/permissions";
 import { uploadImage } from "../services/community";
 import { communityError } from "../services/supabase";
 import { Modal } from "./Modal";
@@ -93,30 +97,32 @@ function ResourceEditor({
                 onChange={(e) => patch(i, { content: e.target.value })}
               />
             </label>
-            {r.type === "image" && permissions.userId && (
-              <label>
-                Tải ảnh lên (tối đa 5 MB)
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    setUploading(true);
-                    setUploadError("");
-                    try {
-                      patch(i, {
-                        url: await uploadImage(file, permissions.userId!),
-                      });
-                    } catch (error) {
-                      setUploadError(communityError(error));
-                    } finally {
-                      setUploading(false);
-                    }
-                  }}
-                />
-              </label>
-            )}
+            {r.type === "image" &&
+              canContribute(permissions) &&
+              permissions.userId && (
+                <label>
+                  Tải ảnh lên (tối đa 5 MB)
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setUploading(true);
+                      setUploadError("");
+                      try {
+                        patch(i, {
+                          url: await uploadImage(file, permissions.userId!),
+                        });
+                      } catch (error) {
+                        setUploadError(communityError(error));
+                      } finally {
+                        setUploading(false);
+                      }
+                    }}
+                  />
+                </label>
+              )}
           </fieldset>
           {canEdit(permissions, r) && (
             <button
@@ -134,7 +140,7 @@ function ResourceEditor({
       ))}
       {uploadError && <p role="alert">{uploadError}</p>}
       {uploading && <p role="status">Đang tải ảnh…</p>}
-      {(!permissions.community || permissions.userId) && (
+      {canContribute(permissions) && (
         <button
           type="button"
           disabled={uploading}
@@ -360,7 +366,7 @@ export function NodeEditor({
                     }
                   />
                 ))}
-                {(!permissions.community || permissions.userId) && (
+                {canContribute(permissions) && (
                   <button
                     type="button"
                     className="button small secondary"
@@ -406,7 +412,7 @@ export function NodeEditor({
             <button type="button" className="button secondary" onClick={close}>
               Hủy
             </button>
-            {(!permissions.community || permissions.userId) && (
+            {canContribute(permissions) && (
               <button
                 type="submit"
                 className="button primary"

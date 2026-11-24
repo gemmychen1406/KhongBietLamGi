@@ -1,9 +1,25 @@
 # Cấu hình cộng đồng với Supabase
 
-## 1. Tạo project và database
+## Website đã có 4 bảng và bucket: một thao tác bắt buộc
+
+Môi trường Codex chưa có công cụ/phiên quản trị Supabase, CLI được xác thực hay database URL. Không có lệnh quản trị từ xa nào được thực thi và không thể xác nhận trạng thái live qua mạng ở môi trường này.
+
+Trên project hiện có, mở **SQL Editor → New query** → copy **toàn bộ** file [002_system_seed.sql](../supabase/migrations/002_system_seed.sql) → **Run**. Không sửa nội dung file, không chạy lại 001, không tạo tài khoản để làm chủ mẫu. Sau đó tải lại website bản đã nâng cấp. Nếu hai biến Vercel đã đúng thì giữ nguyên chúng.
+
+Script tự kiểm tra `supabase_migrations.schema_migrations` nếu bảng này có sẵn, rồi kiểm tra các bảng/cột/khóa ngoại và các hàm phân quyền. SQL Editor có thể đã chạy 001 mà không có bản ghi CLI; script nhận biết schema hiện hữu, **không chạy lại 001** và không sửa lịch sử CLI. Ledger riêng trong schema private ghi checksum sau khi toàn bộ lần khởi tạo hoàn tất. Nếu schema không tương thích hoặc checksum khác, transaction dừng an toàn thay vì ghi đè. Không gọi `db push`, không reset, không xóa database.
+
+Mẫu có đủ 42 nhóm, 42 hoạt động, 17 biến thể và 4 tài nguyên lấy trực tiếp từ `src/data/seed.ts`. `scripts/generate-system-seed.mjs` sinh SQL bằng UUID/khóa cố định theo đường dẫn nội dung. Chạy lại cùng file không tạo bản trùng; marker lần chạy cũng bảo toàn những mẫu Admin đã sửa/xóa. Đóng góp có sẵn không bị sửa/xóa hay nhận làm nội dung hệ thống; các bản ghi thành viên có tiêu đề trùng vẫn giữ nguyên quyền sở hữu.
+
+### Quyền sở hữu hệ thống
+
+Không có tài khoản Auth giả. Migration thêm `system_seed_key`, giữ FK `created_by → auth.users`, và thay NOT NULL đơn giản bằng ràng buộc phân biệt hai trường hợp: **thành viên** có `created_by` hợp lệ và không có system key; **hệ thống** có system key riêng và `created_by` NULL. Mọi hàng thành viên cũ giữ nguyên tác giả và giá trị. INSERT của authenticated user luôn phải có `created_by = auth.uid()` và không có system key; kể cả Admin trên website cũng không thể tự chèn seed hệ thống. UPDATE không được đổi tác giả, system key hoặc vị trí. Chỉ Admin được sửa/xóa mẫu hệ thống, vẫn tuân thủ FK bảo toàn đóng góp con.
+
+Đọc thư viện dùng `get_public_library()` với RLS và một snapshot nhất quán, không dựa vào phiên đăng nhập. Bản source mới vẫn đọc bảng phân trang để tương thích khi 002 chưa chạy; lỗi quyền không bị hiểu nhầm là thư viện rỗng.
+
+## 1. Chỉ dành cho project mới chưa có bảng
 
 1. Trong Supabase Dashboard chọn **New project**, đặt tên và mật khẩu database riêng. Không đưa mật khẩu vào source.
-2. Mở **SQL Editor → New query**, dán toàn bộ `supabase/migrations/001_community.sql` và bấm **Run**. Chạy một lần trên project mới; script có transaction. Không chạy chồng lên bảng cùng tên của hệ thống khác.
+2. Mở **SQL Editor → New query**, chạy `supabase/migrations/001_community.sql` duy nhất một lần trên project trống; sau đó chạy `002_system_seed.sql` để có mẫu hệ thống. Project đang có bảng thì bỏ qua 001 và chỉ làm thao tác ở đầu tài liệu.
 3. Kiểm tra **Table Editor** có `profiles`, `activity_nodes`, `activity_variants`, `resources`; RLS bật cả bốn. **Storage** có bucket public `activity-images`, tối đa 5 MB, JPEG/PNG/WebP/GIF.
 4. **Authentication → Providers → Email**: bật đăng ký bằng email và xác nhận email. Không cần bật anonymous sign-in: khách dùng public API key để đọc.
 5. **Authentication → URL Configuration**: Site URL là URL website; thêm URL localhost và website Vercel vào Redirect URLs. Ví dụ `http://localhost:5173` và `https://ten-web.vercel.app`. Sau khi xác nhận email, website nhận phiên và xóa token khỏi thanh địa chỉ. Bạn cũng có thể đăng nhập lại bằng email/mật khẩu.
@@ -18,7 +34,7 @@ VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLIC_PUBLISHABLE_KEY
 ```
 
-Đây là thông tin công khai trong bundle trình duyệt. Tuyệt đối không dùng `service_role`, secret key, database password hoặc JWT signing secret. Website không cần chúng. RLS là lớp kiểm soát quyền thực tế. Thiếu cấu hình sẽ hiện hướng dẫn và thư viện rỗng, không giả lập bằng dữ liệu local.
+Đây là thông tin công khai trong bundle trình duyệt. Tuyệt đối không dùng `service_role`, secret key, database password hoặc JWT signing secret. Website không cần chúng. RLS là lớp kiểm soát quyền thực tế. Thiếu cấu hình vẫn random được mẫu cục bộ chỉ đọc, luôn có nhãn chưa đồng bộ. Mẫu không được tự động ghi vào Supabase từ trình duyệt.
 
 ## 3. Admin đầu tiên
 
@@ -38,11 +54,11 @@ RPC `set_member_role` tự kiểm tra Admin trong database, không tin role gử
 
 ## 4. Dữ liệu mẫu và dữ liệu cũ
 
-- **Mẫu:** Admin mở **Thư viện → Thêm dữ liệu mẫu (Admin)** và xác nhận. Chỉ thêm một lần để tránh bản trùng. Không tự thêm mẫu khi tải trang.
+- **Mẫu:** chạy file SQL 002 một lần theo đầu tài liệu; không cần tài khoản Admin trên website. Không còn nút thêm mẫu gây trùng trong UI. Nếu chưa có dữ liệu chung, chỉ hiển thị mẫu cục bộ ở chế độ chỉ đọc.
 - **Dữ liệu phiên bản cũ trên cùng trình duyệt/domain:** chọn **Tải bản gốc trước nâng cấp** ở chân trang. Khóa localStorage cũ không bị ghi đè. Nếu đã đổi domain hoặc thiết bị, xuất JSON trên website cũ trước.
 - **Nhập JSON:** đăng nhập, tải thư viện thành công, chọn **Sao lưu dữ liệu → Chọn file JSON**, kiểm tra số lượng rồi xác nhận. Mọi node, variant và resource được cấp ID mới, ghi dưới tài khoản đang nhập. Người tạo trong JSON không được dùng để cấp quyền. Nội dung cộng đồng hiện có được giữ nguyên; lịch sử trên thiết bị được thay bằng lịch sử trong JSON. Nhập lại cùng file sẽ tạo bản sao; không tự gộp theo tiêu đề.
 - Import ghi nội dung trong một transaction; lỗi quyền/ràng buộc sẽ rollback toàn bộ nội dung của lần nhập. Tối đa 10 MB/file và 10.000 thay đổi/lần; chia cây lớn thành nhiều file hợp lệ nếu cần.
-- Xuất JSON gồm thư viện tải từ server và snapshot lịch sử của thiết bị. Đây là backup logic của nội dung, không bao gồm tài khoản, quyền, mật khẩu hay byte ảnh Storage. Muốn phục hồi cả file ảnh/project cần backup Storage và database qua công cụ quản trị Supabase.
+- Xuất JSON gồm thư viện đang hiển thị và snapshot lịch sử của thiết bị. Khi đang ở chế độ mẫu, dialog và tên file nêu rõ mẫu cục bộ chưa đồng bộ; import vào cộng đồng bị khóa trong chế độ này. Đây là backup logic của nội dung, không bao gồm tài khoản, quyền, mật khẩu hay byte ảnh Storage. Muốn phục hồi cả file ảnh/project cần backup Storage và database qua công cụ quản trị Supabase.
 
 ## 5. Quy tắc hoạt động
 
@@ -69,3 +85,5 @@ RPC `set_member_role` tự kiểm tra Admin trong database, không tin role gử
 - [Supabase RLS](https://supabase.com/docs/guides/database/postgres/row-level-security)
 - [Supabase Auth REST](https://github.com/supabase/auth/blob/master/README.md)
 - [Storage access control](https://supabase.com/docs/guides/storage/security/access-control)
+
+- [Lịch sử Supabase migrations và thay đổi qua SQL Editor](https://supabase.com/docs/guides/deployment/database-migrations)

@@ -1,5 +1,5 @@
 import type { ActivityNode, Resource, Variant } from "../types";
-import { api, publicImageUrl } from "./supabase";
+import { api, publicApi, publicImageUrl } from "./supabase";
 export type Row = Record<string, string | boolean | null> & { id: string };
 export type Tables = Record<
   "activity_nodes" | "activity_variants" | "resources",
@@ -10,6 +10,14 @@ export interface Change {
   op: "insert" | "update" | "delete";
   data: Row;
   before?: Row;
+}
+function ownership(
+  item: { createdBy?: string; systemSeedKey?: string },
+  userId: string,
+): Record<string, string | null> {
+  return item.systemSeedKey
+    ? { created_by: null, system_seed_key: item.systemSeedKey }
+    : { created_by: item.createdBy ?? userId };
 }
 export function flatten(nodes: ActivityNode[], userId: string): Tables {
   const rows: Tables = {
@@ -27,7 +35,7 @@ export function flatten(nodes: ActivityNode[], userId: string): Tables {
         id: r.id,
         node_id: nodeId,
         variant_id: variantId,
-        created_by: r.createdBy ?? userId,
+        ...ownership(r, userId),
         title: r.title,
         type: r.type,
         url: r.url || null,
@@ -39,7 +47,7 @@ export function flatten(nodes: ActivityNode[], userId: string): Tables {
       rows.activity_nodes.push({
         id: n.id,
         parent_id: parent,
-        created_by: n.createdBy ?? userId,
+        ...ownership(n, userId),
         title: n.title,
         description: n.description || null,
         kind: n.kind,
@@ -50,7 +58,7 @@ export function flatten(nodes: ActivityNode[], userId: string): Tables {
         rows.activity_variants.push({
           id: v.id,
           node_id: n.id,
-          created_by: v.createdBy ?? userId,
+          ...ownership(v, userId),
           title: v.title,
           description: v.description || null,
         });
@@ -82,10 +90,16 @@ export function assemble(
   rows: Tables,
   names: Map<string, string>,
 ): ActivityNode[] {
-  const attr = (r: Row) => ({
-    createdBy: String(r.created_by),
-    contributorName: names.get(String(r.created_by)) ?? "Thành viên",
-  });
+  const attr = (r: Row) =>
+    r.system_seed_key
+      ? {
+          systemSeedKey: String(r.system_seed_key),
+          contributorName: "Hệ thống",
+        }
+      : {
+          createdBy: r.created_by ? String(r.created_by) : undefined,
+          contributorName: names.get(String(r.created_by)) ?? "Thành viên",
+        };
   const rs = (node: string, variant: string | null): Resource[] =>
     rows.resources
       .filter((r) => r.node_id === node && r.variant_id === variant)
@@ -108,6 +122,9 @@ export function assemble(
         resources: rs(r.id, v.id),
         ...attr(v),
       }));
+    if (nodes.has(r.id)) throw new Error("Dữ liệu tải về có ID trùng lặp.");
+    if (r.kind !== "group" && r.kind !== "activity")
+      throw new Error("Loại nhóm/hoạt động trong thư viện không hợp lệ.");
     nodes.set(r.id, {
       id: r.id,
       title: String(r.title),
@@ -125,36 +142,101 @@ export function assemble(
     const n = nodes.get(r.id)!;
     if (r.parent_id) {
       const parent = nodes.get(String(r.parent_id));
-      if (!parent) throw new Error("Thiếu nhóm cha trong dữ liệu tải về.");
+      if (!parent)
+        throw new Error(
+          "Thiếu nhóm cha trong dữ liệu tải về. Hãy tải lại thư viện.",
+        );
+      if (parent.kind !== "group")
+        throw new Error("Nhánh cha không phải nhóm hợp lệ.");
       parent.children.push(n);
     } else roots.push(n);
   });
+  const visited = new Set<string>();
+  const pending = [...roots];
+  while (pending.length) {
+    const n = pending.pop()!;
+    if (visited.has(n.id)) throw new Error("Thư viện có chu trình.");
+    visited.add(n.id);
+    pending.push(...n.children);
+  }
+  if (visited.size !== nodes.size)
+    throw new Error("Thư viện có chu trình hoặc thiếu nhánh gốc.");
+  const variants = new Map(rows.activity_variants.map((v) => [v.id, v]));
+  if (
+    variants.size !== rows.activity_variants.length ||
+    new Set(rows.resources.map((r) => r.id)).size !== rows.resources.length
+  )
+    throw new Error("Biến thể hoặc tài nguyên bị trùng ID.");
+  for (const v of rows.activity_variants)
+    if (nodes.get(String(v.node_id))?.kind !== "activity")
+      throw new Error("Biến thể thiếu hoạt động hợp lệ.");
+  for (const r of rows.resources) {
+    if (
+      nodes.get(String(r.node_id))?.kind !== "activity" ||
+      (r.variant_id &&
+        variants.get(String(r.variant_id))?.node_id !== r.node_id)
+    )
+      throw new Error("Tài nguyên không thuộc đúng hoạt động/biến thể.");
+  }
   return roots;
 }
-// Page every table: Supabase's default response limit must not silently truncate the tree.
+// Legacy compatibility until 002 is applied. Page until empty even if server caps pages below 500.
 async function allRows(table: string): Promise<Record<string, unknown>[]> {
   const result: Record<string, unknown>[] = [];
-  for (let offset = 0; ; offset += 500) {
-    const data = await api<Record<string, unknown>[]>(
-      `/rest/v1/${table}?select=*&order=id&offset=${offset}&limit=500`,
+  for (;;) {
+    const data = await publicApi<Record<string, unknown>[]>(
+      `/rest/v1/${table}?select=*&order=id&offset=${result.length}&limit=500`,
     );
+    if (!Array.isArray(data))
+      throw new Error("Dịch vụ trả về thư viện không hợp lệ.");
+    if (!data.length) return result;
     result.push(...data);
-    if (data.length < 500) return result;
   }
 }
 export async function loadLibrary() {
-  const [nodes, variants, resources, profiles] = await Promise.all(
-    ["activity_nodes", "activity_variants", "resources", "profiles"].map(
-      allRows,
-    ),
-  );
-  return assemble(
-    {
+  type LibraryPayload = Tables & {
+    profiles: { id: string; display_name: string }[];
+  };
+  let payload: LibraryPayload;
+  try {
+    payload = await publicApi<LibraryPayload>(
+      "/rest/v1/rpc/get_public_library",
+      { method: "POST", body: "{}" },
+    );
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code !== "PGRST202" && code !== "42883") throw error;
+    const [nodes, variants, resources, profiles] = await Promise.all([
+      allRows("activity_nodes"),
+      allRows("activity_variants"),
+      allRows("resources"),
+      // Missing public display names must not prevent guests from randomizing public content.
+      allRows("profiles").catch(() => []),
+    ]);
+    payload = {
       activity_nodes: nodes as Row[],
       activity_variants: variants as Row[],
       resources: resources as Row[],
-    },
-    new Map(profiles.map((p) => [String(p.id), String(p.display_name)])),
+      profiles: profiles as LibraryPayload["profiles"],
+    };
+  }
+  if (
+    !payload ||
+    ![
+      payload.activity_nodes,
+      payload.activity_variants,
+      payload.resources,
+      payload.profiles,
+    ].every(Array.isArray)
+  )
+    throw new Error(
+      "Phản hồi thư viện không hợp lệ. Hãy kiểm tra cấu hình Supabase.",
+    );
+  return assemble(
+    payload,
+    new Map(
+      payload.profiles.map((p) => [String(p.id), String(p.display_name)]),
+    ),
   );
 }
 export async function saveLibrary(

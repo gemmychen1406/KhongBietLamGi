@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Copy,
   Check,
@@ -13,6 +13,10 @@ import { isSafeUrl } from "../services/storage";
 function ResourceItem({ resource: r }: { resource: Resource }) {
   const [failed, setFailed] = useState(false);
   const [copyState, setCopyState] = useState("");
+  useEffect(() => {
+    setFailed(false);
+    setCopyState("");
+  }, [r.url, r.content]);
   async function copy() {
     try {
       await navigator.clipboard.writeText(r.content ?? "");

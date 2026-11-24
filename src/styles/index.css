@@ -2011,3 +2011,5 @@ input[type="file"]::file-selector-button {
  .tree-children { padding-left: 12px; }
 }
 .member-id { display: block; overflow-wrap: anywhere; }
+.sample-notice { display: block; margin-bottom: 20px; background: #fff8e9; color: #694c1d; }
+.sample-notice p { margin: 8px 0 0; }

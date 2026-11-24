@@ -4,6 +4,8 @@ export interface Permissions {
   userId: string | null;
   admin: boolean;
   community: boolean;
+  readOnly?: boolean;
+  librarySource?: "sample" | "community";
 }
 export const PermissionContext = createContext<Permissions>({
   userId: null,
@@ -11,11 +13,14 @@ export const PermissionContext = createContext<Permissions>({
   community: true,
 });
 export const usePermissions = () => useContext(PermissionContext);
+export function canContribute(p: Permissions) {
+  return !p.readOnly && (!p.community || Boolean(p.userId));
+}
 export function canEdit(p: Permissions, item: Contribution) {
   return (
-    !p.community ||
-    Boolean(
-      p.userId && (p.admin || !item.createdBy || item.createdBy === p.userId),
-    )
+    canContribute(p) &&
+    (!p.community ||
+      p.admin ||
+      (!item.systemSeedKey && (!item.createdBy || item.createdBy === p.userId)))
   );
 }

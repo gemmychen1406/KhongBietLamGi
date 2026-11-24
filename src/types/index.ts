@@ -1,4 +1,5 @@
 export interface Contribution {
+  systemSeedKey?: string;
   createdBy?: string;
   contributorName?: string;
 }
@@ -31,6 +32,7 @@ export interface PathItem {
   title: string;
 }
 export interface Result {
+  source?: "sample" | "community";
   path: PathItem[];
   activity: ActivityNode;
   variant?: Variant;
